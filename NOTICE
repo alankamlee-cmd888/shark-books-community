@@ -1,0 +1,13 @@
+Shark Books Community
+Copyright 2026 MTD Shark / Shark Books Community contributors
+
+Shark Books Community is distributed under the Apache License, Version 2.0.
+
+This distribution includes or depends on third-party open-source software.
+In particular, it includes Govcraft Beankeeper, copyright 2025 roland@govcraft.ai,
+available under MIT OR Apache-2.0 terms.
+
+Third-party licence and attribution details are recorded in
+42_SBC0E_LICENSE_AND_NOTICE_REGISTER_2026-09-04.csv and must be shipped in an
+appropriate third-party notices bundle with release artifacts. MPL-2.0 covered
+files/components must retain their required notices and source availability.
