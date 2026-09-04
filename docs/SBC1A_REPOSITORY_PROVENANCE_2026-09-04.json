@@ -1,0 +1,18 @@
+{
+  "gate": "SBC-1A",
+  "repository": "alankamlee-cmd888/shark-books-community",
+  "remote": "https://github.com/alankamlee-cmd888/shark-books-community.git",
+  "visibility": "public",
+  "default_branch": "main",
+  "pre_import_state": "EMPTY_REPOSITORY_NO_COMMITS",
+  "foundation_source": "SBC0D_CODEMAGIC_IOS_PROOF_V1.zip",
+  "frozen_foundation_manifest": "docs/frozen/41_SBC0E_FROZEN_FOUNDATION_MANIFEST_2026-09-04.json",
+  "note": "The exact final SBC-1A HEAD is recorded in the external SBC-1A evidence checkpoint because a commit cannot self-record its own hash without changing that hash.",
+  "repository_id": "1357279936",
+  "proof_repository": "alankamlee-cmd888/sbc0d-ios-proof",
+  "proof_remote": "https://github.com/alankamlee-cmd888/sbc0d-ios-proof.git",
+  "proof_default_branch": "main",
+  "proof_head": "12f7501265e575606ea0915906a55f4270cc3a81",
+  "proof_head_message": "Add files via upload",
+  "proof_head_created_at_utc": "2026-09-04T13:28:32Z"
+}
