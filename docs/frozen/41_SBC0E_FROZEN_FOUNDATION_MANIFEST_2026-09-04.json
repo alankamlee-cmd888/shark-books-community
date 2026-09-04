@@ -1,0 +1,65 @@
+{
+  "programme": "Shark Books Community",
+  "gate": "SBC-0E",
+  "date": "2026-09-04",
+  "decision": "GO_FREEZE_BEANKEEPER_BASED_FOUNDATION",
+  "foundation_frozen": true,
+  "accounting": {
+    "repository": "Govcraft/beankeeper",
+    "commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "beankeeper_version": "0.4.0",
+    "beankeeper_cli_version": "0.8.0",
+    "integration_mode": "B1_DIRECT_RUST_BEHIND_SHARK_FACADE",
+    "facade_sha256": "2c679b0fd5e146e2f82050a32e047c48fa9aa02d386964f8b307c2cae68fb87b"
+  },
+  "persistence": {
+    "native_database": "SQLite via SQLCipher",
+    "production_encryption": "MANDATORY",
+    "plaintext_allowed_for": [
+      "tests",
+      "migration/conversion tooling",
+      "non-production diagnostics"
+    ]
+  },
+  "dependency_baseline": {
+    "cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "package_count": 526,
+    "classification_counts": {
+      "PERMISSIVE_OR_NOTICE": 519,
+      "WEAK_COPYLEFT_FILE_LEVEL": 5,
+      "PERMISSIVE_ALTERNATIVE_SELECTED": 2
+    },
+    "tauri_core": "2.11.5",
+    "tauri_cli": "2.11.4",
+    "tauri_build": "2.6.3",
+    "rust": "1.98.1"
+  },
+  "licensing": {
+    "shark_original": "Apache-2.0",
+    "notice_required": true,
+    "attribution": "MTD Shark / Shark Books Community contributors",
+    "beankeeper": "MIT OR Apache-2.0",
+    "mpl_packages": [
+      "cssparser 0.36.0",
+      "cssparser-macros 0.6.1",
+      "dtoa-short 0.3.5",
+      "option-ext 0.2.0",
+      "selectors 0.36.1"
+    ],
+    "r_efi_choice": "MIT or Apache-2.0 alternative"
+  },
+  "evidence": {
+    "sbc0b": "SBC0B_RESULT_20260904_095719.zip",
+    "sbc0c_final": "SBC0C_C4_RESULT_20260904_132929.zip",
+    "sbc0c_final_sha256": "3d271ce2e8ca2074295d7efa7b7072f2fa3599d542fc12f077cbfcd46cfcf695",
+    "sbc0d_result": "SBC0D_CODEMAGIC_RESULT_20260904_133335.zip",
+    "sbc0d_result_sha256": "57207ea3d834fa795dcf36c3c0b4f5f57abf35d0abbc350076db388f6e37d811",
+    "sbc0d_assertions": 38,
+    "sbc0d_failures": 0,
+    "codemagic_build_id": "6a9ac84b51e6e98425f5ddb4",
+    "codemagic_repo_commit": "12f7501265e575606ea0915906a55f4270cc3a81",
+    "ios_app_zip_sha256": "900caf4e0c8118b816f02c8f148f5fa6208749c83c7b644855a1c52e0095b70a",
+    "ios_app_executable_sha256": "7951cc8771092cff952dc3d01946d70f0857e673672da41f383b12f2d8151bc5"
+  },
+  "next_gate": "SBC-1 Platform shell and production Shark accounting facade"
+}
