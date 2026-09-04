@@ -1,0 +1,64 @@
+{
+  "gate": "SBC-1C",
+  "date": "2026-09-04",
+  "status": "APPROVED_FOR_FAIL_CLOSED_WINDOWS_VALIDATION",
+  "sbc1b_base_head": "603f4d9cafc757b79cfd6aab01de85762889acba",
+  "foundation": {
+    "beankeeper_repository": "Govcraft/beankeeper",
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "frozen_baseline_facade_sha256": "2c679b0fd5e146e2f82050a32e047c48fa9aa02d386964f8b307c2cae68fb87b",
+    "sbc1b_production_facade_sha256": "422a39c1735a347d9472ff61f45cea992765b31b216ac4531a78fd424bde1503",
+    "cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "beankeeper_database_schema_version": 8,
+    "facade_api_version": 1,
+    "shark_application_schema_version": 1,
+    "shark_books_format_version": 1,
+    "production_native_encryption": "MANDATORY",
+    "sbc1c_production_facade_sha256": "6274cffc89ccb2fcea4d489e76375c9c5be1e3c8cc2fbd4c4e56b37bdef0ef46",
+    "sbc1c_tauri_adapter_sha256": "4b098cdea4b840af8fef3dc09a37d2f26a4e1738d42d26a14c3044f0ddf88204"
+  },
+  "encrypted_lifecycle": {
+    "key_type": "BooksKey",
+    "key_provider_trait": "SecureKeyProvider",
+    "backup_hook_trait": "BackupBeforeMigrationHook",
+    "public_plaintext_create_open": false,
+    "key_serializable": false,
+    "key_debug_redacted": true,
+    "existing_open_order": [
+      "load key from SecureKeyProvider",
+      "complete BackupBeforeMigrationHook",
+      "call pinned Beankeeper Db::open",
+      "verify books/company"
+    ],
+    "reason_for_preopen_backup": "Pinned Beankeeper performs schema assurance/migration inside Db::open.",
+    "backup_reference_implementation": "SiblingEncryptedBackup",
+    "backup_non_overwriting": true,
+    "persistent_wal_preserved_when_present": true,
+    "transient_shm_backup_required": false,
+    "backup_source_must_be_quiescent": true,
+    "backup_retention_policy_deferred_to": "SBC-14",
+    "identical_snapshot_reuse": true,
+    "repeated_wrong_key_backup_amplification_mitigated": true
+  },
+  "required_tests": [
+    "books_key_debug_is_redacted",
+    "encrypted_create_reopen_and_backup_contract",
+    "backup_is_non_overwriting_and_preserves_persistent_companions",
+    "wrong_key_fails_without_mutating_encrypted_database",
+    "production_plaintext_constructors_are_not_exposed",
+    "SBC-1B regression tests remain passing"
+  ],
+  "invariants": [
+    "typed Beankeeper JournalEntry validation occurs before db::post_transaction persistence",
+    "wrong-key open cannot mutate encrypted database bytes",
+    "pre-open backup snapshots do not overwrite earlier rollback points",
+    "persistent SQLite WAL is preserved with a pre-open snapshot when present",
+    "identical pre-open snapshots are reused rather than copied repeatedly",
+    "existing encrypted open invokes backup hook before Db::open",
+    "production public boundary has no passphrase string or SecretString",
+    "public plaintext create/open constructors are absent",
+    "Cargo.lock and dependency manifests remain unchanged"
+  ],
+  "dependency_change": false,
+  "cargo_update_permitted": false
+}

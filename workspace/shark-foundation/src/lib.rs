@@ -1,7 +1,9 @@
-//! SBC-1B production Shark accounting/application facade.
-//! All application callers use Shark-owned DTOs and errors rather than raw SQLite/Beankeeper APIs.
+//! SBC-1C production Shark accounting/application facade.
+//! Production native books are encrypted by default and keys stay behind a Shark-owned provider boundary.
 
 use std::fmt;
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use beankeeper::core::JournalEntry;
@@ -18,6 +20,7 @@ use beankeeper_cli::error::CliError;
 use chrono::NaiveDate;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
 pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 1;
@@ -83,9 +86,175 @@ impl std::error::Error for FoundationError {}
 pub struct BooksId(String);
 
 impl BooksId {
+    pub fn new(value: impl Into<String>) -> FoundationResult<Self> {
+        let value = value.into();
+        validate_books_id(&value)?;
+        Ok(Self(value))
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Secret key material owned by the Shark boundary.
+///
+/// Deliberately not serializable or clonable. Debug output is always redacted.
+pub struct BooksKey {
+    secret: SecretString,
+}
+
+impl BooksKey {
+    pub fn new(secret: String) -> FoundationResult<Self> {
+        if secret.is_empty() {
+            return Err(FoundationError::new(
+                FoundationErrorCode::InvalidInput,
+                "books key must not be empty",
+            ));
+        }
+        Ok(Self {
+            secret: SecretString::from(secret),
+        })
+    }
+
+    fn secret(&self) -> &SecretString {
+        &self.secret
+    }
+}
+
+impl fmt::Debug for BooksKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("BooksKey([REDACTED])")
+    }
+}
+
+/// Platform-replaceable source of encrypted-books key material.
+///
+/// Implementations may use Windows Credential Manager, iOS Keychain, or another
+/// secure platform store. The key itself never crosses a serializable DTO.
+pub trait SecureKeyProvider: Send + Sync {
+    fn load_key(&self, books_id: &BooksId) -> FoundationResult<BooksKey>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupReceipt {
+    pub backup_path: PathBuf,
+    pub persistent_companion_backups: Vec<PathBuf>,
+    pub reused_existing_snapshot: bool,
+}
+
+/// Hook that runs before an existing encrypted DB is opened.
+///
+/// Beankeeper's pinned `Db::open` performs schema assurance/migration, so this
+/// hook must complete before that call. Implementations are replaceable and
+/// should assume that the source books are not concurrently open elsewhere.
+pub trait BackupBeforeMigrationHook: Send + Sync {
+    fn backup_before_open(
+        &self,
+        path: &Path,
+        books_id: &BooksId,
+    ) -> FoundationResult<BackupReceipt>;
+}
+
+/// Conservative reference implementation for the pre-migration contract.
+///
+/// Each snapshot receives a new sibling name rather than overwriting a previous
+/// rollback point. SQLite's persistent `-wal` companion is copied when present;
+/// the transient `-shm` wal-index is deliberately not part of the snapshot.
+#[derive(Debug, Clone, Default)]
+pub struct SiblingEncryptedBackup;
+
+impl SiblingEncryptedBackup {
+    const MAX_BACKUP_SEQUENCE: u32 = 10_000;
+
+    #[must_use]
+    pub fn backup_path_for(&self, path: &Path) -> PathBuf {
+        Self::backup_candidate(path, 0)
+    }
+
+    fn backup_candidate(path: &Path, sequence: u32) -> PathBuf {
+        let mut value = path.as_os_str().to_os_string();
+        if sequence == 0 {
+            value.push(".preopen.bak");
+        } else {
+            value.push(format!(".preopen.{sequence}.bak"));
+        }
+        PathBuf::from(value)
+    }
+
+    fn reusable_or_next_backup_path(&self, path: &Path) -> FoundationResult<(PathBuf, bool)> {
+        for sequence in 0..=Self::MAX_BACKUP_SEQUENCE {
+            let candidate = Self::backup_candidate(path, sequence);
+            let wal = sqlite_companion_path(&candidate, "-wal");
+            let journal = sqlite_companion_path(&candidate, "-journal");
+
+            if candidate.is_file() {
+                if persistent_sqlite_snapshot_matches(path, &candidate)? {
+                    return Ok((candidate, true));
+                }
+                continue;
+            }
+
+            if !wal.exists() && !journal.exists() {
+                return Ok((candidate, false));
+            }
+        }
+        Err(FoundationError::new(
+            FoundationErrorCode::Storage,
+            "could not allocate a non-overwriting pre-open backup path",
+        ))
+    }
+}
+
+impl BackupBeforeMigrationHook for SiblingEncryptedBackup {
+    fn backup_before_open(
+        &self,
+        path: &Path,
+        _books_id: &BooksId,
+    ) -> FoundationResult<BackupReceipt> {
+        if !path.is_file() {
+            return Err(FoundationError::new(
+                FoundationErrorCode::NotFound,
+                "books database does not exist",
+            ));
+        }
+
+        let (backup_path, reused_existing_snapshot) =
+            self.reusable_or_next_backup_path(path)?;
+
+        if reused_existing_snapshot {
+            return Ok(BackupReceipt {
+                persistent_companion_backups: persistent_companion_backups_for(&backup_path),
+                backup_path,
+                reused_existing_snapshot: true,
+            });
+        }
+
+        fs::copy(path, &backup_path).map_err(io_error)?;
+
+        let mut persistent_companion_backups = Vec::new();
+        for suffix in ["-wal", "-journal"] {
+            let source = sqlite_companion_path(path, suffix);
+            if !source.is_file() {
+                continue;
+            }
+            let destination = sqlite_companion_path(&backup_path, suffix);
+            if let Err(error) = fs::copy(&source, &destination) {
+                let _ = fs::remove_file(&backup_path);
+                for copied in &persistent_companion_backups {
+                    let _ = fs::remove_file(copied);
+                }
+                return Err(io_error(error));
+            }
+            persistent_companion_backups.push(destination);
+        }
+
+        Ok(BackupReceipt {
+            backup_path,
+            persistent_companion_backups,
+            reused_existing_snapshot: false,
+        })
     }
 }
 
@@ -108,6 +277,8 @@ pub struct MigrationMetadata {
     pub books_format_version: u32,
     pub application_schema_version: u32,
     pub migration_required: bool,
+    pub encrypted_native_required: bool,
+    pub backup_before_existing_open_required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -216,7 +387,8 @@ pub struct Books {
 }
 
 impl Books {
-    pub fn create_plain(
+    #[cfg(test)]
+    fn create_plain_for_test(
         path: &Path,
         company_slug: &str,
         company_name: &str,
@@ -224,17 +396,6 @@ impl Books {
     ) -> FoundationResult<Self> {
         let db = Db::open(path, None).map_err(map_cli_error)?;
         db::create_company(db.conn(), company_slug, company_name, None).map_err(map_cli_error)?;
-        Ok(Self {
-            db,
-            db_path: path.to_path_buf(),
-            company_slug: company_slug.to_string(),
-            actor: Actor::new(actor),
-        })
-    }
-
-    pub fn open_plain(path: &Path, company_slug: &str, actor: &str) -> FoundationResult<Self> {
-        let db = Db::open(path, None).map_err(map_cli_error)?;
-        db::get_company(db.conn(), company_slug).map_err(map_cli_error)?;
         Ok(Self {
             db,
             db_path: path.to_path_buf(),
@@ -245,35 +406,67 @@ impl Books {
 
     pub fn create_encrypted(
         path: &Path,
-        passphrase: &str,
-        company_slug: &str,
+        books_id: &BooksId,
         company_name: &str,
         actor: &str,
+        key_provider: &dyn SecureKeyProvider,
     ) -> FoundationResult<Self> {
-        let secret = SecretString::from(passphrase.to_owned());
-        let db = Db::open(path, Some(&secret)).map_err(map_cli_error)?;
-        db::create_company(db.conn(), company_slug, company_name, None).map_err(map_cli_error)?;
+        if path.exists() {
+            return Err(FoundationError::new(
+                FoundationErrorCode::Validation,
+                "refusing to create encrypted books over an existing path",
+            ));
+        }
+
+        let key = key_provider.load_key(books_id)?;
+        let db = match Db::open(path, Some(key.secret())) {
+            Ok(db) => db,
+            Err(error) => {
+                remove_sqlite_artifacts(path);
+                return Err(map_cli_error(error));
+            }
+        };
+        if let Err(error) =
+            db::create_company(db.conn(), books_id.as_str(), company_name, None)
+        {
+            drop(db);
+            remove_sqlite_artifacts(path);
+            return Err(map_cli_error(error));
+        }
+
         Ok(Self {
             db,
             db_path: path.to_path_buf(),
-            company_slug: company_slug.to_string(),
+            company_slug: books_id.as_str().to_string(),
             actor: Actor::new(actor),
         })
     }
 
     pub fn open_encrypted(
         path: &Path,
-        passphrase: &str,
-        company_slug: &str,
+        books_id: &BooksId,
         actor: &str,
+        key_provider: &dyn SecureKeyProvider,
+        backup_hook: &dyn BackupBeforeMigrationHook,
     ) -> FoundationResult<Self> {
-        let secret = SecretString::from(passphrase.to_owned());
-        let db = Db::open(path, Some(&secret)).map_err(map_cli_error)?;
-        db::get_company(db.conn(), company_slug).map_err(map_cli_error)?;
+        if !path.is_file() {
+            return Err(FoundationError::new(
+                FoundationErrorCode::NotFound,
+                "books database does not exist",
+            ));
+        }
+
+        let key = key_provider.load_key(books_id)?;
+        // Must occur before Db::open because pinned Beankeeper performs schema
+        // assurance/migration as part of the open operation.
+        let _backup = backup_hook.backup_before_open(path, books_id)?;
+        let db = Db::open(path, Some(key.secret())).map_err(map_cli_error)?;
+        db::get_company(db.conn(), books_id.as_str()).map_err(map_cli_error)?;
+
         Ok(Self {
             db,
             db_path: path.to_path_buf(),
-            company_slug: company_slug.to_string(),
+            company_slug: books_id.as_str().to_string(),
             actor: Actor::new(actor),
         })
     }
@@ -310,6 +503,8 @@ impl Books {
             books_format_version: SHARK_BOOKS_FORMAT_VERSION,
             application_schema_version: SHARK_APPLICATION_SCHEMA_VERSION,
             migration_required: database_schema_version != BEANKEEPER_DATABASE_SCHEMA_VERSION,
+            encrypted_native_required: true,
+            backup_before_existing_open_required: true,
         })
     }
 
@@ -654,13 +849,102 @@ impl Books {
     }
 }
 
-pub fn verify_books(path: &Path) -> FoundationResult<i64> {
-    let db = Db::open(path, None).map_err(map_cli_error)?;
-    db::get_schema_version(db.conn()).map_err(map_cli_error)
+#[must_use]
+pub const fn production_encryption_required() -> bool {
+    true
 }
 
 pub fn boundary_id() -> &'static str {
-    "SBC1B-production-shark-facade-v1"
+    "SBC1C-encrypted-lifecycle-v1"
+}
+
+fn validate_books_id(value: &str) -> FoundationResult<()> {
+    if value.is_empty() || value.len() > 64 {
+        return Err(FoundationError::new(
+            FoundationErrorCode::InvalidInput,
+            "books id must be 1-64 characters",
+        ));
+    }
+    let bytes = value.as_bytes();
+    if !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit() {
+        return Err(FoundationError::new(
+            FoundationErrorCode::InvalidInput,
+            "books id must start with a lowercase letter or digit",
+        ));
+    }
+    if bytes
+        .iter()
+        .any(|b| !b.is_ascii_lowercase() && !b.is_ascii_digit() && *b != b'-')
+    {
+        return Err(FoundationError::new(
+            FoundationErrorCode::InvalidInput,
+            "books id may contain only lowercase letters, digits, and hyphens",
+        ));
+    }
+    Ok(())
+}
+
+fn sqlite_companion_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn file_digest(path: &Path) -> FoundationResult<Vec<u8>> {
+    let mut file = fs::File::open(path).map_err(io_error)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(io_error)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_vec())
+}
+
+fn persistent_sqlite_snapshot_matches(source: &Path, backup: &Path) -> FoundationResult<bool> {
+    if file_digest(source)? != file_digest(backup)? {
+        return Ok(false);
+    }
+
+    for suffix in ["-wal", "-journal"] {
+        let source_companion = sqlite_companion_path(source, suffix);
+        let backup_companion = sqlite_companion_path(backup, suffix);
+        match (
+            source_companion.is_file(),
+            backup_companion.is_file(),
+        ) {
+            (false, false) => {}
+            (true, true) => {
+                if file_digest(&source_companion)? != file_digest(&backup_companion)? {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn persistent_companion_backups_for(backup: &Path) -> Vec<PathBuf> {
+    ["-wal", "-journal"]
+        .into_iter()
+        .map(|suffix| sqlite_companion_path(backup, suffix))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+fn remove_sqlite_artifacts(path: &Path) {
+    let _ = fs::remove_file(path);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let _ = fs::remove_file(sqlite_companion_path(path, suffix));
+    }
+}
+
+fn io_error(error: std::io::Error) -> FoundationError {
+    FoundationError::new(FoundationErrorCode::Io, error.to_string())
 }
 
 fn map_cli_error(error: CliError) -> FoundationError {
@@ -758,7 +1042,7 @@ mod tests {
     fn metadata_is_shark_owned_and_versioned() {
         let path = temp_db_path("metadata");
         let books =
-            Books::create_plain(&path, "test-books", "Test Books", "test").expect("create books");
+            Books::create_plain_for_test(&path, "test-books", "Test Books", "test").expect("create books");
         let metadata = books.metadata().expect("metadata");
         assert_eq!(metadata.books_id.as_str(), "test-books");
         assert_eq!(metadata.company_slug, "test-books");
@@ -780,6 +1064,8 @@ mod tests {
             BEANKEEPER_DATABASE_SCHEMA_VERSION
         );
         assert!(!migration.migration_required);
+        assert!(migration.encrypted_native_required);
+        assert!(migration.backup_before_existing_open_required);
         drop(books);
         let _ = fs::remove_file(path);
     }
@@ -788,7 +1074,7 @@ mod tests {
     fn unbalanced_post_is_rejected_before_database_mutation() {
         let path = temp_db_path("unbalanced");
         let books =
-            Books::create_plain(&path, "test-books", "Test Books", "test").expect("create books");
+            Books::create_plain_for_test(&path, "test-books", "Test Books", "test").expect("create books");
         books
             .create_account("1000", "Cash", "asset")
             .expect("create cash account");
@@ -816,4 +1102,198 @@ mod tests {
         drop(books);
         let _ = fs::remove_file(path);
     }
+    struct TestKeyProvider {
+        key: String,
+    }
+
+    impl TestKeyProvider {
+        fn new(key: &str) -> Self {
+            Self {
+                key: key.to_string(),
+            }
+        }
+    }
+
+    impl SecureKeyProvider for TestKeyProvider {
+        fn load_key(&self, _books_id: &BooksId) -> FoundationResult<BooksKey> {
+            BooksKey::new(self.key.clone())
+        }
+    }
+
+    fn file_sha256(path: &Path) -> String {
+        use sha2::{Digest, Sha256};
+        let bytes = fs::read(path).expect("read database bytes");
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn books_key_debug_is_redacted() {
+        let secret = "sbc1c-test-secret-material";
+        let key = BooksKey::new(secret.to_string()).expect("build key");
+        let debug = format!("{key:?}");
+        assert!(debug.contains("REDACTED"));
+        assert!(!debug.contains(secret));
+    }
+
+    #[test]
+    fn encrypted_create_reopen_and_backup_contract() {
+        let path = temp_db_path("encrypted-reopen");
+        let books_id = BooksId::new("encrypted-books").expect("books id");
+        let provider = TestKeyProvider::new("correct-test-key");
+        let backup = SiblingEncryptedBackup;
+
+        let books = Books::create_encrypted(
+            &path,
+            &books_id,
+            "Encrypted Test Books",
+            "test",
+            &provider,
+        )
+        .expect("create encrypted books");
+        books
+            .create_account("1000", "Cash", "asset")
+            .expect("create account");
+        assert_eq!(
+            books.verify().expect("verify schema"),
+            BEANKEEPER_DATABASE_SCHEMA_VERSION
+        );
+        drop(books);
+
+        let header = fs::read(&path).expect("read encrypted database");
+        assert!(
+            !header.starts_with(b"SQLite format 3\0"),
+            "production encrypted DB must not expose plaintext SQLite header"
+        );
+        let before_hash = file_sha256(&path);
+
+        let reopened = Books::open_encrypted(&path, &books_id, "test", &provider, &backup)
+            .expect("reopen encrypted books");
+        assert_eq!(reopened.books_id(), books_id);
+        drop(reopened);
+
+        let backup_path = backup.backup_path_for(&path);
+        assert!(backup_path.is_file(), "pre-open encrypted backup must exist");
+        assert_eq!(file_sha256(&backup_path), before_hash);
+
+        remove_sqlite_artifacts(&backup_path);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
+    fn backup_is_non_overwriting_and_preserves_persistent_companions() {
+        let path = temp_db_path("backup-contract");
+        let books_id = BooksId::new("backup-books").expect("books id");
+        let backup = SiblingEncryptedBackup;
+
+        fs::write(&path, b"main-v1").expect("write main fixture");
+        let wal_path = sqlite_companion_path(&path, "-wal");
+        let shm_path = sqlite_companion_path(&path, "-shm");
+        fs::write(&wal_path, b"wal-v1").expect("write wal fixture");
+        fs::write(&shm_path, b"transient-shm").expect("write shm fixture");
+
+        let first = backup
+            .backup_before_open(&path, &books_id)
+            .expect("first backup");
+        assert!(!first.reused_existing_snapshot);
+        assert_eq!(
+            fs::read(&first.backup_path).expect("read first backup"),
+            b"main-v1".to_vec()
+        );
+        assert_eq!(first.persistent_companion_backups.len(), 1);
+        let first_wal = sqlite_companion_path(&first.backup_path, "-wal");
+        assert_eq!(first.persistent_companion_backups[0], first_wal);
+        assert_eq!(
+            fs::read(&first_wal).expect("read first wal backup"),
+            b"wal-v1".to_vec()
+        );
+        assert!(
+            !sqlite_companion_path(&first.backup_path, "-shm").exists(),
+            "transient -shm must not be copied into rollback snapshot"
+        );
+
+        let duplicate = backup
+            .backup_before_open(&path, &books_id)
+            .expect("duplicate snapshot lookup");
+        assert!(duplicate.reused_existing_snapshot);
+        assert_eq!(duplicate.backup_path, first.backup_path);
+
+        fs::write(&path, b"main-v2").expect("rewrite main fixture");
+        fs::write(&wal_path, b"wal-v2").expect("rewrite wal fixture");
+        let second = backup
+            .backup_before_open(&path, &books_id)
+            .expect("changed snapshot backup");
+        assert!(!second.reused_existing_snapshot);
+        assert_ne!(first.backup_path, second.backup_path);
+        assert_eq!(
+            fs::read(&first.backup_path).expect("reread first backup"),
+            b"main-v1".to_vec()
+        );
+        assert_eq!(
+            fs::read(&second.backup_path).expect("read second backup"),
+            b"main-v2".to_vec()
+        );
+        let second_wal = sqlite_companion_path(&second.backup_path, "-wal");
+        assert_eq!(
+            fs::read(&second_wal).expect("read second wal backup"),
+            b"wal-v2".to_vec()
+        );
+
+        remove_sqlite_artifacts(&first.backup_path);
+        remove_sqlite_artifacts(&second.backup_path);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
+    fn wrong_key_fails_without_mutating_encrypted_database() {
+        let path = temp_db_path("wrong-key");
+        let books_id = BooksId::new("wrong-key-books").expect("books id");
+        let correct = TestKeyProvider::new("correct-test-key");
+        let wrong = TestKeyProvider::new("wrong-test-key");
+        let backup = SiblingEncryptedBackup;
+
+        let books =
+            Books::create_encrypted(&path, &books_id, "Wrong Key Test", "test", &correct)
+                .expect("create encrypted books");
+        books
+            .create_account("1000", "Cash", "asset")
+            .expect("create account");
+        drop(books);
+
+        let before_hash = file_sha256(&path);
+        let result = Books::open_encrypted(&path, &books_id, "test", &wrong, &backup);
+        let error = match result {
+            Ok(_) => panic!("wrong key must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, FoundationErrorCode::Storage);
+        assert_eq!(
+            file_sha256(&path),
+            before_hash,
+            "wrong-key open must not mutate encrypted database bytes"
+        );
+
+        let backup_path = backup.backup_path_for(&path);
+        assert!(backup_path.is_file(), "backup must occur before attempted DB open");
+        assert_eq!(file_sha256(&backup_path), before_hash);
+
+        let recovered = Books::open_encrypted(&path, &books_id, "test", &correct, &backup)
+            .expect("correct key must still reopen books after wrong-key failure");
+        assert_eq!(
+            recovered.verify().expect("verify recovered books"),
+            BEANKEEPER_DATABASE_SCHEMA_VERSION
+        );
+        drop(recovered);
+
+        let second_backup_path = SiblingEncryptedBackup::backup_candidate(&path, 1);
+        remove_sqlite_artifacts(&backup_path);
+        remove_sqlite_artifacts(&second_backup_path);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
+    fn production_plaintext_constructors_are_not_exposed() {
+        assert!(production_encryption_required());
+        assert_eq!(boundary_id(), "SBC1C-encrypted-lifecycle-v1");
+    }
+
 }
