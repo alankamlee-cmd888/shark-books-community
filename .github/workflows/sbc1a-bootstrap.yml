@@ -12,16 +12,17 @@ jobs:
   import-frozen-workspace:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Import exact SBC0D workspace
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rm -rf /tmp/sbc0d-proof
+          rm -rf /tmp/product /tmp/sbc0d-proof
+          git clone --quiet "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/product
           git clone --quiet https://github.com/alankamlee-cmd888/sbc0d-ios-proof.git /tmp/sbc0d-proof
           git -C /tmp/sbc0d-proof checkout --quiet 12f7501265e575606ea0915906a55f4270cc3a81
+          cd /tmp/product
           rm -rf workspace
           cp -a /tmp/sbc0d-proof/SBC0D_CODEMAGIC_IOS_PROOF_V1/workspace ./workspace
           git add workspace
