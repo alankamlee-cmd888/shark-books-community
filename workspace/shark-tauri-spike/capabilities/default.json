@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Minimal SBC-0D mobile boundary capability",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
