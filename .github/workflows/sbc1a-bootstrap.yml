@@ -1,0 +1,34 @@
+name: SBC1A bootstrap
+
+on:
+  push:
+    paths:
+      - '.github/workflows/sbc1a-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-frozen-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import exact SBC0D workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sbc0d-proof
+          git clone --quiet https://github.com/alankamlee-cmd888/sbc0d-ios-proof.git /tmp/sbc0d-proof
+          git -C /tmp/sbc0d-proof checkout --quiet 12f7501265e575606ea0915906a55f4270cc3a81
+          rm -rf workspace
+          cp -a /tmp/sbc0d-proof/SBC0D_CODEMAGIC_IOS_PROOF_V1/workspace ./workspace
+          git add workspace
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'SBC-1A: import frozen SBC-0 workspace baseline'
+          git push origin HEAD:main
