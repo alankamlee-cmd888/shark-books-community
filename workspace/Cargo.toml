@@ -1,0 +1,3 @@
+[workspace]
+members = ["shark-foundation", "shark-tauri-spike"]
+resolver = "2"
