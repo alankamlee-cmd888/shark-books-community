@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Shark SBC0D Spike",
+  "version": "0.0.1",
+  "identifier": "uk.co.mtdshark.sbc0d",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Shark SBC0D Boundary",
+        "width": 640,
+        "height": 480
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}
