@@ -7,7 +7,7 @@ fn foundation_health() -> String {
 
 #[tauri::command]
 fn verify_books(db_path: String) -> Result<i64, String> {
-    shark_foundation::verify_books(&PathBuf::from(db_path))
+    shark_foundation::verify_books(&PathBuf::from(db_path)).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

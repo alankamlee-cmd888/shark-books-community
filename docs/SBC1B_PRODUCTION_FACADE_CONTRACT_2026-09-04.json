@@ -1,0 +1,71 @@
+{
+  "gate": "SBC-1B",
+  "date": "2026-09-04",
+  "status": "APPROVED_FOR_FAIL_CLOSED_WINDOWS_VALIDATION",
+  "sbc1a_base_head": "6233a44c802c1205eb5958c5037b3df294c97d99",
+  "foundation": {
+    "beankeeper_repository": "Govcraft/beankeeper",
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "frozen_baseline_facade_sha256": "2c679b0fd5e146e2f82050a32e047c48fa9aa02d386964f8b307c2cae68fb87b",
+    "production_facade_sha256": "422a39c1735a347d9472ff61f45cea992765b31b216ac4531a78fd424bde1503",
+    "production_tauri_adapter_sha256": "db2708ff7992a09ae346e31c0b7212b3cddf7a963ab1ead2dbedf33412bf76c6",
+    "cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "beankeeper_database_schema_version": 8,
+    "facade_api_version": 1,
+    "shark_application_schema_version": 1,
+    "shark_books_format_version": 1
+  },
+  "public_contract": {
+    "result_type": "FoundationResult<T> = Result<T, FoundationError>",
+    "error_code_type": "FoundationErrorCode",
+    "error_type": "FoundationError",
+    "books_id_type": "BooksId",
+    "metadata_type": "BooksMetadata",
+    "migration_metadata_type": "MigrationMetadata",
+    "posting_request_type": "PostTransactionRequest",
+    "import_summary_type": "ImportSummary",
+    "status_change_type": "StatusChangeResult",
+    "required_primitives": [
+      "create_plain",
+      "open_plain",
+      "create_encrypted",
+      "open_encrypted",
+      "verify",
+      "metadata",
+      "migration_metadata",
+      "create_account",
+      "post",
+      "post_transaction",
+      "count_transactions",
+      "find_by_reference",
+      "transaction",
+      "trial_balance",
+      "import_ofx",
+      "import_ofx_summary",
+      "set_reconciled",
+      "reconcile_entry",
+      "audit_status_changes",
+      "attach_document",
+      "attachments"
+    ]
+  },
+  "error_mapping": {
+    "USAGE": "INVALID_INPUT",
+    "VALIDATION": "VALIDATION",
+    "DATABASE": "STORAGE",
+    "NOT_FOUND": "NOT_FOUND",
+    "GENERAL": "INTERNAL",
+    "UNIMPLEMENTED": "UNSUPPORTED",
+    "BEAN_DOMAIN": "VALIDATION",
+    "SQLITE": "STORAGE",
+    "IO": "IO"
+  },
+  "invariants": [
+    "typed Beankeeper JournalEntry validation occurs before db::post_transaction persistence",
+    "public Shark facade signatures do not expose beankeeper, beankeeper_cli, rusqlite, Db, PostTransactionParams or PostEntryParams types",
+    "unbalanced post is rejected without increasing persisted transaction count",
+    "Cargo.lock and dependency manifests remain unchanged from SBC-1A"
+  ],
+  "dependency_change": false,
+  "cargo_update_permitted": false
+}
