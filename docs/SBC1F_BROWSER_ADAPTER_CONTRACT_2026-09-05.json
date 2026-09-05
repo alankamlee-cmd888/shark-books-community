@@ -1,0 +1,49 @@
+{
+  "gate": "SBC-1F",
+  "date": "2026-09-05",
+  "title": "Browser adapter interface smoke contract",
+  "parent_head": "fe58cef65cc2506dd993360673c72cbce7dbb655",
+  "scope": "Compile/type seam only for a future browser implementation of the stable SBC-1 application operations.",
+  "interface": {
+    "source": "workspace/browser-adapter-contract/adapter.ts",
+    "smoke": "workspace/browser-adapter-contract/contract-smoke.ts",
+    "stable_operations": [
+      "foundation_health",
+      "production_encryption_required",
+      "books_create",
+      "books_open",
+      "books_verify",
+      "books_trial_balance"
+    ],
+    "native_adapter": "TauriBooksAdapter",
+    "browser_adapter": "BrowserBooksAdapter",
+    "browser_backend_contract": "BrowserBooksBackend"
+  },
+  "boundaries": {
+    "native_persistence": "existing Rust facade and native SQLCipher lifecycle",
+    "browser_persistence_implemented": false,
+    "opfs_implemented": false,
+    "sqlite_wasm_implemented": false,
+    "browser_encryption_parity_claimed": false,
+    "accounting_rules_in_adapter": false,
+    "raw_native_database_api_exposed": false
+  },
+  "deferred": {
+    "browser_persistence_and_durability": "SBC-17",
+    "opfs_durability": "SBC-17"
+  },
+  "dependency_policy": {
+    "cargo_manifest_change": false,
+    "cargo_lock_change": false,
+    "production_dependency_change": false,
+    "typescript_is_compile_only_tooling": true,
+    "typescript_compile_version": "5.9.3"
+  },
+  "proof_required": [
+    "TypeScript strict noEmit compile succeeds",
+    "native and browser adapters both satisfy BooksApplicationAdapter",
+    "browser contract source contains no accounting-core or raw database dependency",
+    "Cargo manifests and Cargo.lock remain unchanged"
+  ],
+  "decision": "PENDING_PROOF"
+}
