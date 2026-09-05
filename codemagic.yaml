@@ -1,0 +1,23 @@
+workflows:
+  sbc1e-ios-shell-proof:
+    name: SBC-1E iOS Shell Proof
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 26.4
+      cocoapods: default
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run SBC-1E evidence gate
+        script: |
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc1e_codemagic.sh"
+          "$CM_BUILD_DIR/ci/run_sbc1e_codemagic.sh"
+    artifacts:
+      - artifacts/SBC1E_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC1E_SUMMARY.*
+      - workspace/shark-tauri-spike/gen/apple/**/*.app
+      - workspace/target/**/*.app
+      - /tmp/xcodebuild_logs/*.log

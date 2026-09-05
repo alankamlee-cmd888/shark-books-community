@@ -1,0 +1,78 @@
+{
+  "programme": "Shark Books Community",
+  "gate": "SBC-1E",
+  "date": "2026-09-05",
+  "status": "CANDIDATE_READY_FOR_CODEMAGIC_EXECUTION",
+  "base_head": "b1ba585c9c739432e3328a7ed1475ae690fb5b9c",
+  "objective": "Prove the existing production Shark/Tauri shell on iOS without changing the frozen accounting or dependency foundation.",
+  "foundation": {
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "sbc1c_production_facade_sha256": "6274cffc89ccb2fcea4d489e76375c9c5be1e3c8cc2fbd4c4e56b37bdef0ef46",
+    "cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "rust": "1.98.1",
+    "tauri_core": "2.11.5",
+    "tauri_cli": "2.11.4",
+    "tauri_build": "2.6.3"
+  },
+  "stable_shell": {
+    "commands": [
+      "foundation_health",
+      "production_encryption_required",
+      "books_create",
+      "books_open",
+      "books_verify",
+      "books_trial_balance"
+    ],
+    "permission": "shark-shell",
+    "windows_capability": {
+      "identifier": "windows-main",
+      "selection": "base tauri.conf.json remains Windows-only",
+      "must_remain_unchanged": true
+    },
+    "ios_capability": {
+      "identifier": "ios-main",
+      "windows": [
+        "main"
+      ],
+      "platforms": [
+        "iOS"
+      ],
+      "permissions": [
+        "shark-shell"
+      ],
+      "local": true
+    },
+    "ios_selection": "tauri.ios.conf.json replaces app.security.capabilities with [ios-main] for iOS builds only"
+  },
+  "required_proofs": [
+    "existing frozen-baseline/SBC-1D guard passes before mobile generation",
+    "reviewed Cargo.lock remains unchanged",
+    "physical aarch64-apple-ios compile of shark-foundation",
+    "physical aarch64-apple-ios compile of shark-tauri-spike",
+    "unsigned aarch64-sim Tauri iOS Simulator application build",
+    "generated Tauri AppManifest permission files remain generated-only and uncommitted"
+  ],
+  "allowed_source_changes": [
+    "codemagic.yaml",
+    "ci/run_sbc1e_codemagic.sh",
+    "docs/SBC1E_IOS_SHELL_CANDIDATE_CONTRACT_2026-09-05.json",
+    "workspace/shark-tauri-spike/capabilities/ios-main.json",
+    "workspace/shark-tauri-spike/tauri.ios.conf.json"
+  ],
+  "dependency_change": false,
+  "cargo_update_permitted": false,
+  "release_signing": false,
+  "app_store_signing": false,
+  "final_ios_secure_store": false,
+  "out_of_scope": [
+    "VAT",
+    "CIS",
+    "payroll",
+    "HMRC submission",
+    "Open Banking",
+    "OCR",
+    "AI",
+    "speech",
+    "final UI"
+  ]
+}

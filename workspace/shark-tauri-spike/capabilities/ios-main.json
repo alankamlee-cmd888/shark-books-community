@@ -1,0 +1,14 @@
+{
+  "identifier": "ios-main",
+  "description": "SBC-1E local iOS main-window access to the bounded Shark application command set only.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "iOS"
+  ],
+  "permissions": [
+    "shark-shell"
+  ],
+  "local": true
+}
