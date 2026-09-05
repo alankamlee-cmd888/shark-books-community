@@ -1,10 +1,14 @@
 {
-  "identifier": "default",
-  "description": "Minimal SBC-0D mobile boundary capability",
+  "identifier": "windows-main",
+  "description": "SBC-1D local Windows main-window access to the bounded Shark application command set only.",
   "windows": [
     "main"
   ],
+  "platforms": [
+    "windows"
+  ],
   "permissions": [
-    "core:default"
-  ]
+    "shark-shell"
+  ],
+  "local": true
 }

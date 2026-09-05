@@ -1,1 +1,59 @@
-<!doctype html><html><head><meta charset="utf-8"><title>SBC-0D</title></head><body><main>SBC-0D iOS compile proof</main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Shark Books Community — SBC-1D</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">Shark Books Community</p>
+      <h1>Windows shell proof</h1>
+      <p class="lede">Encrypted local books through the Shark facade only. This is an engineering shell, not the final bookkeeping UI.</p>
+    </header>
+
+    <section class="status" aria-live="polite">
+      <strong>Foundation:</strong> <span id="health">checking…</span>
+      <span class="divider">·</span>
+      <strong>Production encryption:</strong> <span id="encryption">checking…</span>
+    </section>
+
+    <section class="panel">
+      <label>
+        Books file
+        <input id="fileName" value="sbc1d-proof.sqlite" maxlength="103" autocomplete="off">
+      </label>
+      <label>
+        Books ID
+        <input id="booksId" value="sbc1d-proof-books" maxlength="96" autocomplete="off">
+      </label>
+      <label>
+        Business name
+        <input id="companyName" value="Shark SBC-1D Proof" maxlength="200" autocomplete="organization">
+      </label>
+      <label>
+        Actor
+        <input id="actor" value="local-owner" maxlength="100" autocomplete="off">
+      </label>
+
+      <p class="note">The encryption key is not entered in this webview. The SBC-1D validator supplies a proof-only key to the Rust process.</p>
+
+      <div class="actions">
+        <button id="createButton" type="button">Create encrypted books</button>
+        <button id="openButton" type="button">Open books</button>
+        <button id="verifyButton" type="button">Verify books</button>
+        <button id="balanceButton" type="button">Trial balance</button>
+      </div>
+    </section>
+
+    <section class="panel output-panel">
+      <h2>Command result</h2>
+      <pre id="output">Ready.</pre>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

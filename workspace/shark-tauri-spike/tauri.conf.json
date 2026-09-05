@@ -1,22 +1,32 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Shark SBC0D Spike",
+  "productName": "Shark Books Community",
   "version": "0.0.1",
-  "identifier": "uk.co.mtdshark.sbc0d",
+  "identifier": "uk.co.mtdshark.sharkbookscommunity",
   "build": {
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
-        "title": "Shark SBC0D Boundary",
-        "width": 640,
-        "height": 480
+        "title": "Shark Books Community \u2014 SBC-1D Windows Shell",
+        "width": 760,
+        "height": 620,
+        "resizable": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost",
+        "script-src": "'self'",
+        "style-src": "'self'"
+      },
+      "capabilities": [
+        "windows-main"
+      ]
     }
   },
   "bundle": {

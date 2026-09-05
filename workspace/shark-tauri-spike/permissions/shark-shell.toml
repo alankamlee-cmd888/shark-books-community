@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "shark-shell"
+description = "Allows the bounded Shark Books Community application command set."
+commands.allow = [
+  "foundation_health",
+  "production_encryption_required",
+  "books_create",
+  "books_open",
+  "books_verify",
+  "books_trial_balance",
+]
