@@ -1,0 +1,151 @@
+workflows:
+  sbc1-bounded-proof:
+    name: SBC-1 bounded proof
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'sbc1-batch-20260905'
+          include: true
+          source: true
+    environment:
+      xcode: 26.4
+    scripts:
+      - name: Record exact source and host
+        script: |
+          set -euo pipefail
+          mkdir -p sbc1-evidence
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "branch=${CM_BRANCH:-unknown}"
+            sw_vers
+            uname -a
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            xcrun --sdk iphonesimulator --show-sdk-version
+          } | tee sbc1-evidence/00-source-host.txt
+          git status --short | tee sbc1-evidence/00-git-status-before.txt
+
+      - name: Select frozen Rust and Apple targets
+        script: |
+          set -euo pipefail
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim --toolchain 1.98.1
+          {
+            rustc -Vv
+            cargo -V
+            rustup target list --installed
+          } | tee sbc1-evidence/01-rust.txt
+
+      - name: Frozen foundation and SBC policy guards
+        script: |
+          set -euo pipefail
+          python3 scripts/check_frozen_baseline.py | tee sbc1-evidence/02-frozen-before.txt
+          python3 scripts/check_sbc1_ci_policy.py | tee sbc1-evidence/03-policy-before.txt
+          python3 - <<'PY' | tee sbc1-evidence/04-frozen-hashes.txt
+          import hashlib, pathlib
+          for p in [
+              pathlib.Path('workspace/Cargo.lock'),
+              pathlib.Path('workspace/shark-foundation/src/lib.rs'),
+              pathlib.Path('docs/SBC1E_IOS_SHELL_CONTRACT_2026-09-05.json'),
+              pathlib.Path('docs/SBC1F_BROWSER_ADAPTER_CONTRACT_2026-09-05.json'),
+              pathlib.Path('docs/SBC1G_CI_REGRESSION_POLICY_2026-09-05.json'),
+          ]:
+              print(hashlib.sha256(p.read_bytes()).hexdigest(), p)
+          PY
+
+      - name: Browser adapter strict type seam
+        script: |
+          set -euo pipefail
+          node --version | tee sbc1-evidence/05-node.txt
+          npx --yes --package typescript@5.9.3 tsc -p workspace/browser-adapter-contract/tsconfig.json 2>&1 | tee sbc1-evidence/06-browser-adapter.txt
+
+      - name: Materialise exact Beankeeper pin
+        script: |
+          set -euo pipefail
+          python3 scripts/bootstrap_beankeeper.py 2>&1 | tee sbc1-evidence/07-beankeeper.txt
+          test "$(git -C upstream/beankeeper rev-parse HEAD)" = "d573db5e61089b0922f95c991732394d08e3cf92"
+          test -z "$(git -C upstream/beankeeper status --porcelain)"
+
+      - name: Foundation regressions under frozen lock
+        script: |
+          set -euo pipefail
+          export CARGO_INCREMENTAL=0
+          cd workspace
+          cargo test -p shark-foundation --locked 2>&1 | tee ../sbc1-evidence/08-foundation-tests.txt
+          cargo check --workspace --locked 2>&1 | tee ../sbc1-evidence/09-workspace-check.txt
+
+      - name: Physical iOS foundation compile
+        script: |
+          set -euo pipefail
+          export CARGO_INCREMENTAL=0
+          cd workspace
+          cargo build -p shark-foundation --locked --target aarch64-apple-ios 2>&1 | tee ../sbc1-evidence/10-ios-device-build.txt
+
+      - name: iOS Simulator foundation compile
+        script: |
+          set -euo pipefail
+          export CARGO_INCREMENTAL=0
+          cd workspace
+          cargo build -p shark-foundation --locked --target aarch64-apple-ios-sim 2>&1 | tee ../sbc1-evidence/11-ios-sim-foundation-build.txt
+
+      - name: Install exact Tauri CLI
+        script: |
+          set -euo pipefail
+          cargo install tauri-cli --version 2.11.4 --locked
+          cargo tauri --version | tee sbc1-evidence/12-tauri-cli.txt
+          test "$(cargo tauri --version | awk '{print $2}')" = "2.11.4"
+
+      - name: Initialise and build unsigned iOS Simulator shell
+        script: |
+          set -euo pipefail
+          export CI=true
+          export CARGO_INCREMENTAL=0
+          cd workspace/shark-tauri-spike
+          cargo tauri ios init --ci 2>&1 | tee ../../sbc1-evidence/13-tauri-ios-init.txt
+          cargo tauri ios build --debug --ci --target aarch64-sim 2>&1 | tee ../../sbc1-evidence/14-tauri-ios-sim-build.txt
+          find . -type d -name '*.app' -print | tee ../../sbc1-evidence/15-app-paths.txt
+          test -s ../../sbc1-evidence/15-app-paths.txt
+
+      - name: Final frozen regression re-proof
+        script: |
+          set -euo pipefail
+          python3 scripts/check_frozen_baseline.py | tee sbc1-evidence/16-frozen-after.txt
+          python3 scripts/check_sbc1_ci_policy.py | tee sbc1-evidence/17-policy-after.txt
+          python3 - <<'PY' | tee sbc1-evidence/18-final-lock-check.txt
+          import hashlib, pathlib
+          p = pathlib.Path('workspace/Cargo.lock')
+          got = hashlib.sha256(p.read_bytes()).hexdigest()
+          expected = '3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9'
+          print('Cargo.lock', got)
+          if got != expected:
+              raise SystemExit(f'Cargo.lock drift: {got} != {expected}')
+          PY
+          git status --short | tee sbc1-evidence/19-git-status-after.txt
+          git diff -- workspace/Cargo.lock workspace/Cargo.toml workspace/shark-foundation/Cargo.toml workspace/shark-tauri-spike/Cargo.toml | tee sbc1-evidence/20-critical-diff.txt
+          test ! -s sbc1-evidence/20-critical-diff.txt
+          python3 - <<'PY'
+          import json, pathlib
+          out = {
+            'gate': 'SBC-1E_to_1G_bounded_external_proof',
+            'provider': 'Codemagic',
+            'commit': __import__('subprocess').check_output(['git','rev-parse','HEAD'], text=True).strip(),
+            'frozen_cargo_lock_sha256': '3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9',
+            'beankeeper_commit': 'd573db5e61089b0922f95c991732394d08e3cf92',
+            'rust': '1.98.1',
+            'tauri_cli': '2.11.4',
+            'tauri_core': '2.11.5',
+            'tauri_build': '2.6.3',
+            'windows_ci': 'NOT_REPLACED_BY_THIS_MACOS_PROOF',
+            'result': 'PASS_IF_WORKFLOW_COMPLETES'
+          }
+          pathlib.Path('sbc1-evidence/result.json').write_text(json.dumps(out, indent=2) + '\n')
+          PY
+          ditto -c -k --sequesterRsrc --keepParent sbc1-evidence SBC1_CODEMAGIC_EVIDENCE.zip
+    artifacts:
+      - SBC1_CODEMAGIC_EVIDENCE.zip
+      - sbc1-evidence/**
+      - workspace/shark-tauri-spike/**/*.app
