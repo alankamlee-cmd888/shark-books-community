@@ -1,0 +1,88 @@
+{
+  "gate": "SBC-1G",
+  "date": "2026-09-05",
+  "title": "CI, regression and change-guard policy",
+  "parent_head": "8efc296006f6320a0021bb4f4504b0f2c309122d",
+  "github_actions": {
+    "primary_ci": true,
+    "permissions": "contents-read-only",
+    "pull_request_target_forbidden": true,
+    "required_checks_after_baseline": [
+      "SBC policy guards",
+      "Foundation regressions",
+      "Windows locked build"
+    ],
+    "rust_toolchain": "1.98.1",
+    "typescript_compile_only": "5.9.3",
+    "cargo_locked_required": true
+  },
+  "regression_fixtures": {
+    "gbp": true,
+    "hard_reopen": true,
+    "duplicate_ofx": true,
+    "append_only_reversal": true,
+    "audit": true,
+    "documents": true,
+    "encryption": true
+  },
+  "dependency_policy": {
+    "silent_dependency_drift_allowed": false,
+    "frozen_graph_first": true,
+    "cargo_update_by_default": false,
+    "approved_change_requires_smallest_possible_delta": true,
+    "sbom_and_licence_regeneration_required_on_approved_change": true,
+    "lock_reconciliation_required_on_approved_change": true,
+    "targeted_regression_and_platform_reproof_required_on_approved_change": true,
+    "material_accounting_encryption_licence_or_architecture_change_requires_owner_decision": true
+  },
+  "apple_ci": {
+    "provider": "Codemagic",
+    "instance_type": "mac_mini_m2",
+    "cadence": "weekly",
+    "also_required_for_platform_sensitive_official_changes": true,
+    "public_forks_can_trigger_owner_codemagic": false,
+    "maintainer_controlled": true,
+    "secrets": "none",
+    "signing": false,
+    "publishing": false,
+    "user_data": false,
+    "monthly_free_m2_minutes": 500,
+    "normal_target_max_minutes": 400,
+    "reserve_min_minutes": 100,
+    "steady_state_weekly_job_target_ceiling_minutes": 30,
+    "conservation_mode_at_minutes": 350,
+    "no_discretionary_runs_at_minutes": 425,
+    "automatic_paid_overage": false,
+    "cache": ["cargo-registry", "cargo-git", "npm"],
+    "cancel_superseded_builds": true,
+    "apple_sensitive_paths": [
+      "workspace/shark-foundation/**",
+      "workspace/shark-tauri-spike/**",
+      "workspace/Cargo.toml",
+      "workspace/Cargo.lock",
+      "scripts/**",
+      "codemagic.yaml"
+    ],
+    "docs_only_triggers_apple": false
+  },
+  "branch_policy": {
+    "protect_main_after_first_successful_ci_baseline": true,
+    "normal_changes_require_pull_request": true,
+    "required_checks": true,
+    "direct_push_normal_workflow": false,
+    "admin_bypass_exceptional": true
+  },
+  "community_policy": {
+    "official_upstream_owner_directed": true,
+    "independent_forks_supported_by_owner": false,
+    "owner_codemagic_shared_with_forks": false,
+    "github_issues_enabled_by_default": false,
+    "external_code_accepted_by_default": false
+  },
+  "branding_policy": {
+    "source_code_open": true,
+    "mtd_shark_and_shark_books_identity_open_for_derivative_branding": false
+  },
+  "pass_condition": "Required GitHub CI succeeds on the exact SBC-1G commit, Apple policy is recorded and SBC-1E Apple proof succeeds, with no unapproved frozen-foundation drift.",
+  "decision": "PENDING_CI_PROOF"
+}

@@ -1,0 +1,131 @@
+name: SBC Core
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - sbc1-batch-20260905
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbc-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: SBC policy guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch exact public source without reusable actions
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Frozen foundation guard
+        run: python scripts/check_frozen_baseline.py
+      - name: SBC-1 policy guard
+        run: python scripts/check_sbc1_ci_policy.py
+      - name: Browser adapter strict type seam
+        run: npx --yes --package typescript@5.9.3 tsc -p workspace/browser-adapter-contract/tsconfig.json
+
+  foundation:
+    name: Foundation regressions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch exact public source without reusable actions
+        shell: bash
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Select frozen Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc -Vv
+          cargo -V
+      - name: Materialise exact Beankeeper pin
+        run: python scripts/bootstrap_beankeeper.py
+      - name: Run foundation and SBC-1G regressions under lock
+        working-directory: workspace
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test -p shark-foundation --locked
+      - name: Re-run frozen guard after tests
+        run: python scripts/check_frozen_baseline.py
+
+  windows:
+    name: Windows locked build
+    runs-on: windows-latest
+    steps:
+      - name: Fetch exact public source without reusable actions
+        shell: pwsh
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin $env:GITHUB_SHA
+          git checkout --detach FETCH_HEAD
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'exact source checkout failed' }
+      - name: Copy to short Windows build root
+        shell: pwsh
+        run: |
+          if (Test-Path 'C:\src\sbc') { Remove-Item -Recurse -Force 'C:\src\sbc' }
+          New-Item -ItemType Directory -Force 'C:\src\sbc' | Out-Null
+          robocopy "$env:GITHUB_WORKSPACE" 'C:\src\sbc' /MIR /XD .git target upstream | Out-Host
+          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+          $global:LASTEXITCODE = 0
+      - name: Select frozen Rust toolchain
+        shell: pwsh
+        working-directory: C:\src\sbc
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc -Vv
+          cargo -V
+      - name: Materialise exact Beankeeper pin
+        shell: pwsh
+        working-directory: C:\src\sbc
+        run: python scripts/bootstrap_beankeeper.py
+      - name: Run foundation regressions
+        shell: pwsh
+        working-directory: C:\src\sbc\workspace
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test -p shark-foundation --locked
+      - name: Run bounded Tauri shell tests
+        shell: pwsh
+        working-directory: C:\src\sbc\workspace
+        env:
+          SHARK_SBC1D_PROOF_KEY: sbc1g-ci-proof-key-material
+          SHARK_SBC1D_BOOKS_DIR: C:\src\sbc-proof-books
+          CARGO_INCREMENTAL: "0"
+        run: |
+          New-Item -ItemType Directory -Force $env:SHARK_SBC1D_BOOKS_DIR | Out-Null
+          cargo test -p shark-tauri-spike --locked
+      - name: Check complete locked workspace
+        shell: pwsh
+        working-directory: C:\src\sbc\workspace
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo check --workspace --locked
+      - name: Link Windows shell under lock
+        shell: pwsh
+        working-directory: C:\src\sbc\workspace
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo build -p shark-tauri-spike --locked
+      - name: Re-run policy guards after build
+        shell: pwsh
+        working-directory: C:\src\sbc
+        run: |
+          python scripts/check_frozen_baseline.py
+          python scripts/check_sbc1_ci_policy.py
