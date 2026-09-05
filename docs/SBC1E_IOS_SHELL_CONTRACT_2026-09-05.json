@@ -1,0 +1,50 @@
+{
+  "gate": "SBC-1E",
+  "date": "2026-09-05",
+  "title": "iOS shell contract",
+  "base_head": "b1ba585c9c739432e3328a7ed1475ae690fb5b9c",
+  "scope": "Minimum iOS shell proof using the same production Shark facade and bounded command surface as SBC-1D.",
+  "frozen_foundation": {
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "production_facade_sha256": "6274cffc89ccb2fcea4d489e76375c9c5be1e3c8cc2fbd4c4e56b37bdef0ef46",
+    "cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "dependency_change_allowed": false
+  },
+  "application_shell": {
+    "commands": [
+      "foundation_health",
+      "production_encryption_required",
+      "books_create",
+      "books_open",
+      "books_verify",
+      "books_trial_balance"
+    ],
+    "permission": "shark-shell",
+    "windows_capability": "windows-main",
+    "ios_capability": "ios-main",
+    "ios_capability_platform": "iOS",
+    "ios_platform_override": "tauri.ios.conf.json"
+  },
+  "security": {
+    "production_encryption_required": true,
+    "webview_receives_key_or_passphrase": false,
+    "webview_receives_arbitrary_database_path": false,
+    "real_ios_keychain_integration": false,
+    "proof_environment_key_provider_is_release_storage": false
+  },
+  "apple_release_scope": {
+    "signing": false,
+    "provisioning_profiles": false,
+    "testflight": false,
+    "app_store_distribution": false,
+    "physical_device_installation": false
+  },
+  "proof_required": [
+    "physical aarch64-apple-ios Rust compile",
+    "unsigned aarch64 iOS Simulator Tauri shell build/link",
+    "reviewed Cargo.lock unchanged",
+    "same production facade source",
+    "Windows capability not broadened"
+  ],
+  "decision": "PENDING_EXTERNAL_PROOF"
+}
