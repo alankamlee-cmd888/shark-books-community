@@ -43,9 +43,21 @@ function Stop-Gate([string]$Message, [string]$Code) {
 
 function Invoke-Logged([string]$Label, [scriptblock]$Command) {
     $Log = Join-Path $LogDir "$Label.log"
-    & $Command 2>&1 | Tee-Object -FilePath $Log
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command $Label failed with exit code $LASTEXITCODE"
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $NativeExitCode = 0
+    try {
+        # PowerShell 5.1 surfaces normal native stderr (for example rustup/cargo
+        # progress messages) as non-terminating ErrorRecord objects. Temporarily
+        # allow those records through the logging pipeline, then adjudicate the
+        # native process solely by its real exit code.
+        $ErrorActionPreference = 'Continue'
+        & $Command 2>&1 | Tee-Object -FilePath $Log
+        $NativeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($NativeExitCode -ne 0) {
+        throw "Command $Label failed with exit code $NativeExitCode"
     }
 }
 
