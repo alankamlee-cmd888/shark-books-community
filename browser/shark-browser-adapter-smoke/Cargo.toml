@@ -1,0 +1,9 @@
+[package]
+name = "shark-browser-adapter-smoke"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
