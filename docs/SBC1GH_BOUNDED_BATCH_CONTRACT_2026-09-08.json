@@ -8,8 +8,27 @@
     "HARD_STOP_UNLESS_SBC-1G_PASS",
     "SBC-1H_FINAL_AUDIT_AND_SBC2_HANDOVER"
   ],
+  "allowed_source_changes": [
+    ".github/workflows/sbc-foundation-guard.yml",
+    "ci/prepare_rgba_png.py",
+    "ci/run_sbc1g_codemagic.sh",
+    "ci/run_sbc1g_windows.ps1",
+    "codemagic.yaml",
+    "docs/SBC1GH_BOUNDED_BATCH_CONTRACT_2026-09-08.json",
+    "docs/SBC1G_CI_REGRESSION_AND_CHANGE_CONTROL_POLICY_2026-09-08.md",
+    "scripts/check_sbc1g_change_control.py",
+    "workspace/shark-foundation/tests/fixtures/gbp_statement.ofx",
+    "workspace/shark-foundation/tests/fixtures/sample_receipt.txt",
+    "workspace/shark-foundation/tests/foundation_regression.rs"
+  ],
   "sbc1g": {
     "objective": "Make silent drift of the frozen foundation detectable in ordinary PR/push CI and preserve permanent regression coverage.",
+    "primary_permanent_ci": "Codemagic pull_request/push guards for main on Mac/Apple and Windows",
+    "validation_workflows": [
+      "sbc-foundation-guard-macos",
+      "sbc-foundation-guard-windows"
+    ],
+    "github_actions_role": "manual fallback; pull-request runner startup was unavailable during candidate preparation",
     "mandatory": [
       "normal Rust CI commands use --locked",
       "exact Beankeeper pin enforced",
@@ -17,7 +36,7 @@
       "facade validation/static leak invariants enforced",
       "permanent regressions cover GBP, hard reopen, duplicate OFX, reversal/audit, documents and encryption",
       "Windows production Tauri shell compile check",
-      "Apple physical/simulator target compile policy when native graph changes",
+      "Apple physical/simulator target compile policy",
       "dependency changes require regenerated SBOM, licence register and adjudication evidence",
       "repository status/branch-protection capability audited"
     ],
