@@ -35,8 +35,7 @@ workflows:
     scripts:
       - name: Run SBC-1F evidence gate
         script: |
-          chmod +x "$CM_BUILD_DIR/ci/run_sbc1f_codemagic.sh"
-          "$CM_BUILD_DIR/ci/run_sbc1f_codemagic.sh"
+          bash "$CM_BUILD_DIR/ci/run_sbc1f_codemagic.sh"
     artifacts:
       - artifacts/SBC1F_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC1F_SUMMARY.*
