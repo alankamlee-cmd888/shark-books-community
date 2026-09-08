@@ -6,4 +6,7 @@ rust-version = "1.85"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+path = "src/lib_sbc3.rs"
+
 [dependencies]
