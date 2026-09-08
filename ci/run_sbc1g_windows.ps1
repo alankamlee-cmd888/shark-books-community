@@ -124,22 +124,6 @@ try {
     if ((Compare-Object $ExpectedChanged $ObservedChanged)) { Stop-Gate 'Candidate diff is exactly the authorised SBC-1G/H closure set' 'UNAUTHORISED_SOURCE_CHANGE' }
     Pass 'Candidate diff is exactly the authorised SBC-1G/H closure set'
 
-    # Windows Git commonly checks text out with CRLF when core.autocrlf=true. The
-    # frozen foundation hashes are hashes of the canonical repository bytes, so
-    # normalise this disposable proof checkout before byte-for-byte guards run.
-    $OriginalAutoCrlf = (& git -C $RepoRoot config --get core.autocrlf 2>$null)
-    $OriginalAutoCrlf | Out-File -Encoding ascii (Join-Path $ResultDir 'git_core_autocrlf_at_entry.txt')
-    & git -C $RepoRoot config core.autocrlf false
-    & git -C $RepoRoot config core.eol lf
-    & git -C $RepoRoot checkout-index --force --all
-    if ($LASTEXITCODE -ne 0) { Stop-Gate 'Canonical LF checkout normalisation succeeds' 'CHECKOUT_NORMALISATION_FAIL' }
-    $DirtyAfterNormalise = (& git -C $RepoRoot status --porcelain)
-    if ($DirtyAfterNormalise) {
-        $DirtyAfterNormalise | Out-File -Encoding utf8 (Join-Path $ResultDir 'dirty_after_checkout_normalisation.txt')
-        Stop-Gate 'Repository remains clean after canonical LF normalisation' 'CHECKOUT_NORMALISATION_DIRTY' }
-    }
-    Pass 'Repository checkout uses canonical repository bytes for frozen hash guards'
-
     $Phase = 'G1_STATIC_GUARDS'
     Invoke-Logged 'frozen_baseline' { python (Join-Path $RepoRoot 'scripts/check_frozen_baseline.py') }
     Pass 'Frozen baseline guard passes'
