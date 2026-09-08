@@ -85,7 +85,7 @@ Rust toolchain: $RustToolchain
 try {
     New-Item -ItemType File -Force -Path (Join-Path $ResultDir 'assertions.tsv') | Out-Null
     $Phase = 'G0_PREFLIGHT'
-    if (-not $IsWindows) { Stop-Gate 'Host is Windows' 'HOST_NOT_WINDOWS' }
+    if ($env:OS -ne 'Windows_NT') { Stop-Gate 'Host is Windows' 'HOST_NOT_WINDOWS' }
     Pass 'Host is Windows'
     foreach ($tool in @('git', 'python')) {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Stop-Gate "$tool available" "HOST_TOOL_MISSING_$tool" }
