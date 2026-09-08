@@ -1,7 +1,7 @@
 //! Shark Books Community product core entry point from SBC-3 onward.
 //! The frozen SBC-2 domain implementation remains in `lib.rs`; this entry point
-//! re-exports it and adds the bounded bank-import module without rewriting the
-//! already-proven SBC-2 source.
+//! re-exports it and adds bounded bank-import plus matching/reconciliation
+//! modules without rewriting the already-proven SBC-2 source.
 
 #![forbid(unsafe_code)]
 
@@ -10,3 +10,4 @@ mod domain;
 
 pub use domain::*;
 pub mod bank_import;
+pub mod matching;
