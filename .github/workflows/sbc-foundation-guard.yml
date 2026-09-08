@@ -1,0 +1,134 @@
+name: SBC Foundation Guard (manual fallback)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.98.1"
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "1"
+
+jobs:
+  classify:
+    name: Classify foundation change
+    runs-on: ubuntu-latest
+    outputs:
+      apple_native_changed: ${{ steps.classify.outputs.apple_native_changed }}
+      dependency_changed: ${{ steps.classify.outputs.dependency_changed }}
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(python3 scripts/check_sbc1g_change_control.py --classify-only)"
+          printf '%s\n' "$output"
+          while IFS='=' read -r key value; do
+            case "$key" in
+              apple_native_changed|dependency_changed) printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT" ;;
+            esac
+          done <<< "$output"
+
+  foundation-regression:
+    name: Frozen foundation and regressions
+    needs: classify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Select frozen Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Run guards
+        shell: bash
+        run: |
+          python3 scripts/check_frozen_baseline.py
+          python3 scripts/check_sbc1g_change_control.py
+      - name: Materialise exact Beankeeper pin
+        shell: bash
+        run: python3 scripts/bootstrap_beankeeper.py
+      - name: Resolve native workspace under frozen lock
+        shell: bash
+        run: cargo metadata --manifest-path workspace/Cargo.toml --locked --no-deps > /tmp/sbc-metadata.json
+      - name: Run permanent Shark foundation regression suite
+        shell: bash
+        run: cargo test --manifest-path workspace/Cargo.toml -p shark-foundation --locked --jobs 1
+      - name: Preserve SBC-1F browser contract smoke
+        shell: bash
+        run: cargo test --manifest-path browser/shark-browser-adapter-smoke/Cargo.toml --locked --jobs 1
+
+  windows-compile:
+    name: Windows production shell compile
+    needs: classify
+    runs-on: windows-latest
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Select frozen Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Guard and materialise exact source
+        shell: bash
+        run: |
+          python scripts/check_frozen_baseline.py
+          python scripts/bootstrap_beankeeper.py
+      - name: Build production Tauri shell under frozen lock
+        shell: bash
+        run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1
+
+  apple-native-compile:
+    name: Apple native compile fallback
+    needs: classify
+    runs-on: macos-15
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Select frozen Rust toolchain and Apple targets
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Guard frozen baseline and materialise exact source
+        shell: bash
+        run: |
+          python3 scripts/check_frozen_baseline.py
+          python3 scripts/bootstrap_beankeeper.py
+          python3 ci/prepare_rgba_png.py workspace/shark-tauri-spike/icons/icon.png
+      - name: Compile physical Apple foundation
+        shell: bash
+        run: cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios --locked --jobs 1
+      - name: Compile physical Apple Tauri shell
+        shell: bash
+        run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios --locked --jobs 1
+      - name: Compile Simulator foundation
+        shell: bash
+        run: cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios-sim --locked --jobs 1
+      - name: Compile Simulator Tauri shell
+        shell: bash
+        run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios-sim --locked --jobs 1

@@ -1,0 +1,76 @@
+{
+  "programme": "Shark Books Community",
+  "batch": "SBC-1G-H_BOUNDED_CLOSURE",
+  "date": "2026-09-08",
+  "base_head": "4e3a47b70933cfafe27be262ac2da1ab2a63d1d9",
+  "sequence": [
+    "SBC-1G_IMPLEMENT_AND_VALIDATE",
+    "HARD_STOP_UNLESS_SBC-1G_PASS",
+    "SBC-1H_FINAL_AUDIT_AND_SBC2_HANDOVER"
+  ],
+  "allowed_source_changes": [
+    ".github/workflows/sbc-foundation-guard.yml",
+    "ci/prepare_rgba_png.py",
+    "ci/run_sbc1g_codemagic.sh",
+    "ci/run_sbc1g_windows.ps1",
+    "codemagic.yaml",
+    "docs/SBC1GH_BOUNDED_BATCH_CONTRACT_2026-09-08.json",
+    "docs/SBC1G_CI_REGRESSION_AND_CHANGE_CONTROL_POLICY_2026-09-08.md",
+    "scripts/check_sbc1g_change_control.py",
+    "workspace/shark-foundation/tests/fixtures/gbp_statement.ofx",
+    "workspace/shark-foundation/tests/fixtures/sample_receipt.txt",
+    "workspace/shark-foundation/tests/foundation_regression.rs"
+  ],
+  "sbc1g": {
+    "objective": "Make silent drift of the frozen foundation detectable in ordinary PR/push CI and preserve permanent regression coverage.",
+    "primary_permanent_ci": "Codemagic pull_request/push guards for main on Mac/Apple and Windows",
+    "validation_workflows": [
+      "sbc-foundation-guard-macos",
+      "sbc-foundation-guard-windows"
+    ],
+    "github_actions_role": "manual fallback; pull-request runner startup was unavailable during candidate preparation",
+    "mandatory": [
+      "normal Rust CI commands use --locked",
+      "exact Beankeeper pin enforced",
+      "critical dependency versions and reviewed native Cargo.lock enforced",
+      "facade validation/static leak invariants enforced",
+      "permanent regressions cover GBP, hard reopen, duplicate OFX, reversal/audit, documents and encryption",
+      "Windows production Tauri shell compile check",
+      "Apple physical/simulator target compile policy",
+      "dependency changes require regenerated SBOM, licence register and adjudication evidence",
+      "repository status/branch-protection capability audited"
+    ],
+    "pass": "ordinary changes cannot silently drift the frozen foundation",
+    "hard_stop": true
+  },
+  "sbc1h": {
+    "may_start_only_after_sbc1g_pass": true,
+    "objective": "Adjudicate SBC-1A through SBC-1G as one closed platform/foundation phase with no unapproved frozen-boundary change.",
+    "required_outputs": [
+      "production workspace/repository baseline",
+      "facade API specification",
+      "migration/version contract",
+      "encrypted lifecycle/key abstraction",
+      "Windows and iOS shell proofs",
+      "browser adapter interface record",
+      "regression/CI policy",
+      "updated programme state, architecture, roadmap and library index",
+      "SBC-2 handover"
+    ]
+  },
+  "forbidden_scope": [
+    "UK tax/domain feature implementation",
+    "VAT",
+    "CIS",
+    "payroll",
+    "companies or partnerships",
+    "Open Banking",
+    "OCR or receipt matching feature implementation",
+    "AI or speech feature implementation",
+    "MTD filing",
+    "browser parity implementation",
+    "final product UI",
+    "App Store signing or release distribution",
+    "dependency upgrade without explicit foundation-change review"
+  ]
+}
