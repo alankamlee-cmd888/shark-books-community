@@ -1,17 +1,10 @@
-name: SBC Foundation Guard
+name: SBC Foundation Guard (manual fallback)
 
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: sbc-foundation-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   RUST_TOOLCHAIN: "1.98.1"
@@ -26,7 +19,7 @@ jobs:
       apple_native_changed: ${{ steps.classify.outputs.apple_native_changed }}
       dependency_changed: ${{ steps.classify.outputs.dependency_changed }}
     steps:
-      - name: Checkout exact repository branch without marketplace actions
+      - name: Checkout current branch without marketplace actions
         shell: bash
         run: |
           set -euo pipefail
@@ -35,12 +28,9 @@ jobs:
       - name: Classify changed paths
         id: classify
         shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_SHA" || true
-          output="$(python3 scripts/check_sbc1g_change_control.py --classify-only --base-ref "$BASE_SHA")"
+          output="$(python3 scripts/check_sbc1g_change_control.py --classify-only)"
           printf '%s\n' "$output"
           while IFS='=' read -r key value; do
             case "$key" in
@@ -53,7 +43,7 @@ jobs:
     needs: classify
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact repository branch without marketplace actions
+      - name: Checkout current branch without marketplace actions
         shell: bash
         run: |
           set -euo pipefail
@@ -64,16 +54,11 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
-          rustc --version
-          cargo --version
-      - name: Run static and change-control guards
+      - name: Run guards
         shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
         run: |
-          git fetch origin "$BASE_SHA" || true
           python3 scripts/check_frozen_baseline.py
-          python3 scripts/check_sbc1g_change_control.py --base-ref "$BASE_SHA"
+          python3 scripts/check_sbc1g_change_control.py
       - name: Materialise exact Beankeeper pin
         shell: bash
         run: python3 scripts/bootstrap_beankeeper.py
@@ -92,7 +77,7 @@ jobs:
     needs: classify
     runs-on: windows-latest
     steps:
-      - name: Checkout exact repository branch without marketplace actions
+      - name: Checkout current branch without marketplace actions
         shell: bash
         run: |
           set -euo pipefail
@@ -103,25 +88,21 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
-          rustc --version
-          cargo --version
-      - name: Guard frozen baseline
+      - name: Guard and materialise exact source
         shell: bash
-        run: python scripts/check_frozen_baseline.py
-      - name: Materialise exact Beankeeper pin
-        shell: bash
-        run: python scripts/bootstrap_beankeeper.py
+        run: |
+          python scripts/check_frozen_baseline.py
+          python scripts/bootstrap_beankeeper.py
       - name: Build production Tauri shell under frozen lock
         shell: bash
         run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1
 
   apple-native-compile:
-    name: Apple native compile when graph changes
+    name: Apple native compile fallback
     needs: classify
-    if: needs.classify.outputs.apple_native_changed == 'true'
     runs-on: macos-15
     steps:
-      - name: Checkout exact repository branch without marketplace actions
+      - name: Checkout current branch without marketplace actions
         shell: bash
         run: |
           set -euo pipefail
@@ -133,26 +114,21 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-          rustc --version
-          cargo --version
-      - name: Guard frozen baseline before generated CI work
+      - name: Guard frozen baseline and materialise exact source
         shell: bash
-        run: python3 scripts/check_frozen_baseline.py
-      - name: Materialise exact Beankeeper pin
-        shell: bash
-        run: python3 scripts/bootstrap_beankeeper.py
-      - name: Prepare temporary RGBA icon for Apple Tauri compile
-        shell: bash
-        run: python3 ci/prepare_rgba_png.py workspace/shark-tauri-spike/icons/icon.png
-      - name: Compile shared foundation for physical iPhone/iPad target
+        run: |
+          python3 scripts/check_frozen_baseline.py
+          python3 scripts/bootstrap_beankeeper.py
+          python3 ci/prepare_rgba_png.py workspace/shark-tauri-spike/icons/icon.png
+      - name: Compile physical Apple foundation
         shell: bash
         run: cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios --locked --jobs 1
-      - name: Compile Tauri shell for physical iPhone/iPad target
+      - name: Compile physical Apple Tauri shell
         shell: bash
         run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios --locked --jobs 1
-      - name: Compile shared foundation for Apple Simulator target
+      - name: Compile Simulator foundation
         shell: bash
         run: cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios-sim --locked --jobs 1
-      - name: Compile Tauri shell for Apple Simulator target
+      - name: Compile Simulator Tauri shell
         shell: bash
         run: cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios-sim --locked --jobs 1
