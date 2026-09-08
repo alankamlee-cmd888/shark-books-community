@@ -21,3 +21,22 @@ workflows:
       - workspace/shark-tauri-spike/gen/apple/**/*.app
       - workspace/target/**/*.app
       - /tmp/xcodebuild_logs/*.log
+
+  sbc1f-browser-adapter-smoke:
+    name: SBC-1F Browser Adapter Interface Smoke
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      xcode: 26.4
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run SBC-1F evidence gate
+        script: |
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc1f_codemagic.sh"
+          "$CM_BUILD_DIR/ci/run_sbc1f_codemagic.sh"
+    artifacts:
+      - artifacts/SBC1F_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC1F_SUMMARY.*
