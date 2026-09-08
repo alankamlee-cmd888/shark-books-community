@@ -1,0 +1,69 @@
+{
+  "programme": "Shark Books Community",
+  "date": "2026-09-08",
+  "batch": "SBC-2_TO_SBC-5",
+  "entry_main": "9fd34510bc91b2877e4e640e82af40432f57e2b7",
+  "status": "STAGE_A_PASS_STAGE_B_SBC2_READY",
+  "hard_gates": ["SBC-2", "SBC-3", "SBC-4", "SBC-5", "combined_reconciliation"],
+  "application_core": {
+    "path": "product/shark-books-core",
+    "ownership": "SHARK_OWNED",
+    "database_access": false,
+    "raw_beankeeper_access": false,
+    "native_workspace_member": false,
+    "own_lockfile": true,
+    "sbc2_external_dependencies": []
+  },
+  "frozen_foundation": {
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "production_facade_sha256": "6274cffc89ccb2fcea4d489e76375c9c5be1e3c8cc2fbd4c4e56b37bdef0ef46",
+    "native_cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "rust": "1.98.1",
+    "tauri": {"core":"2.11.5","cli":"2.11.4","build":"2.6.3"}
+  },
+  "sbc2": {
+    "currency_default": "GBP",
+    "money_storage": "INTEGER_MINOR_UNITS_ONLY",
+    "tax_year": "6_APRIL_TO_5_APRIL",
+    "accounting_basis": ["CASH", "TRADITIONAL"],
+    "default_accounting_basis": "CASH",
+    "business_use": ["BUSINESS", "PRIVATE", "MIXED_BASIS_POINTS"],
+    "user_confirmation_required_for_ambiguous_business_use": true,
+    "owner_contribution_class": "EQUITY",
+    "owner_drawing_class": "EQUITY",
+    "tax_allowability_inference": false
+  },
+  "sbc3": {
+    "formats": ["CSV", "OFX", "QFX"],
+    "open_banking": false,
+    "preview_before_persistence": true,
+    "silent_skip_malformed_rows": false,
+    "saved_csv_profiles": true,
+    "duplicate_certainty": ["STRONG", "FILE_EXACT", "HEURISTIC"],
+    "automatic_duplicate_suppression": ["STRONG", "FILE_EXACT"],
+    "heuristic_duplicate_requires_user_confirmation": true,
+    "ofx_reference_pattern": "ofx:<currency>:<account_id>:<fit_id>"
+  },
+  "sbc4": {
+    "match_classes": ["EXACT", "LIKELY", "POSSIBLE", "UNMATCHED"],
+    "match_reason_codes_required": true,
+    "automatic_match_without_user_confirmation": false,
+    "clearance_progression": ["uncleared", "cleared", "reconciled"],
+    "match_sets_cleared": true,
+    "reconciled_requires_statement_zero_difference": true,
+    "destructive_rewrite_of_reconciled_history": false
+  },
+  "sbc5": {
+    "central_shark_document_storage": false,
+    "storage_modes": ["MANAGED_LOCAL", "USER_SELECTED_ROOT"],
+    "content_hash": "SHA256",
+    "store_cloud_credentials": false,
+    "broad_webview_filesystem_access": false,
+    "native_bounded_file_operations": true
+  },
+  "excluded": [
+    "VAT", "CIS", "PAYROLL", "LIMITED_COMPANIES", "PARTNERSHIPS",
+    "DIRECT_HMRC_SUBMISSION", "OPEN_BANKING", "TAX_RATE_CALCULATIONS",
+    "OCR", "AI", "SPEECH", "FINAL_UI", "RELEASE_SIGNING"
+  ]
+}
