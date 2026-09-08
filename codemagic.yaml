@@ -61,8 +61,17 @@ workflows:
         CARGO_BUILD_JOBS: "1"
         CARGO_INCREMENTAL: "0"
     scripts:
+      - name: Ensure rustup is available on Codemagic Mac host
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup --version
+          cargo --version
       - name: Run permanent SBC foundation guard on Mac/Apple
         script: |
+          export PATH="$HOME/.cargo/bin:$PATH"
           bash "$CM_BUILD_DIR/ci/run_sbc1g_codemagic.sh"
     artifacts:
       - artifacts/SBC1G_MAC_CODEMAGIC_RESULT_*.zip
