@@ -10,4 +10,5 @@ mod domain;
 
 pub use domain::*;
 pub mod bank_import;
+#[path = "matching_reconciliation.rs"]
 pub mod matching;
