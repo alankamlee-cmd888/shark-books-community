@@ -18,18 +18,33 @@ The following remain controlled foundation identifiers unless an explicit founda
 
 ## Permanent CI rule
 
-`.github/workflows/sbc-foundation-guard.yml` runs on pull requests and pushes to `main`.
+The primary permanent enforcement is stored in root `codemagic.yaml` as two workflows:
 
-Every ordinary Rust build/test/metadata command in this workflow uses `--locked`.
+- `sbc-foundation-guard-macos` — Mac/Apple regression and target proof;
+- `sbc-foundation-guard-windows` — Windows production-shell regression/build proof.
 
-The workflow has four functions:
+Both are configured for `pull_request` and `push` events targeting `main`, with outdated webhook builds cancelled. Codemagic automatic execution requires the repository webhook to be active in the Codemagic app connection. Manual execution remains possible as an evidence path if the webhook must first be refreshed.
 
-1. **change classification** — determines whether the candidate changes the native Apple graph or a controlled dependency surface;
-2. **foundation/regression guard** — runs the frozen-baseline guard, explicit critical-package checks, permanent Shark foundation regressions and browser contract smoke;
-3. **Windows compile** — builds the production Tauri shell on `windows-latest` under the frozen lock;
-4. **Apple native compile** — runs only when native/foundation paths change, and compiles the shared foundation and Tauri shell for both `aarch64-apple-ios` and `aarch64-apple-ios-sim` after a temporary CI-only RGB→RGBA icon conversion.
+Every normal Rust build/test/metadata command in the permanent guard harnesses uses `--locked`.
 
-The Apple job does not alter committed product assets. It operates only in the disposable CI checkout.
+The permanent guard performs:
+
+1. exact SBC-1F ancestry and bounded-change checking;
+2. the existing frozen-baseline guard plus explicit critical-package checks;
+3. the permanent Shark foundation regression scenario and SBC-1F browser contract smoke;
+4. a locked Windows production Tauri shell build;
+5. physical `aarch64-apple-ios` and `aarch64-apple-ios-sim` foundation/Tauri compile proof on Mac;
+6. unchanged native Cargo.lock verification before and after proof.
+
+The Apple job uses a temporary CI-only RGB→RGBA icon conversion and restores/abandons it with the disposable checkout. It does not change committed product assets.
+
+## GitHub Actions fallback and repository setting limitation
+
+`.github/workflows/sbc-foundation-guard.yml` is retained as a **manual fallback**, not the primary automatic enforcement path.
+
+During SBC-1G preparation, two GitHub Actions pull-request runs were created but the classifier job terminated before any recorded job steps/runner execution; downstream jobs were skipped. Removing the marketplace checkout action did not change that runner-startup behaviour. This was therefore treated as CI-platform execution evidence rather than product/foundation evidence.
+
+The connected GitHub integration also returned `403 Resource not accessible by integration` for the `main` branch-protection endpoint. Therefore this programme does not claim that GitHub branch protection or required GitHub status checks were configured through the connector. Repository-level protection may be enabled later if account/API permissions permit; the source-controlled Codemagic guards remain the primary enforcement mechanism.
 
 ## Permanent regression scenario
 
@@ -43,7 +58,7 @@ The Apple job does not alter committed product assets. It operates only in the d
 - reconciliation audit actor/before/after evidence;
 - document attachment hash/reference persistence after reopen.
 
-The fixtures are deterministic and live under `workspace/shark-foundation/tests/fixtures/`.
+The deterministic fixtures live under `workspace/shark-foundation/tests/fixtures/`.
 
 ## Dependency-change rule
 
@@ -55,14 +70,10 @@ Such a change must include, in the same reviewed change set, a `docs/dependency-
 - a regenerated `*LICENSE*.csv` register;
 - an `*ADJUDICATION*.md` record.
 
-The existing frozen-baseline guard will also fail until the explicit foundation review updates the approved hashes/versions. This is deliberate: changing the review documents alone is not permission to drift the foundation.
+The existing frozen-baseline guard will also fail until the explicit foundation review updates the approved hashes/versions. This is deliberate: changing review documents alone is not permission to drift the foundation.
 
 Changes to Beankeeper, rusqlite/SQLCipher/OpenSSL, Tauri, Rust toolchain/MSRV or licence class must follow the frozen SBC-0E update policy and rerun the targeted Windows/Apple/facade regressions before acceptance.
 
 ## Browser boundary
 
 The separate SBC-1F browser smoke crate remains outside the native Cargo workspace and makes no browser parity claim. Browser SQLite WASM/OPFS durability, encryption and parity remain SBC-17 work.
-
-## Repository-enforcement note
-
-CI source controls are stored in the repository. Required-status/branch-protection settings should be enabled at repository level where account/plan/API permissions permit. If repository settings cannot be mutated by the connected automation, that limitation must be recorded during SBC-1H rather than silently claimed as configured.
