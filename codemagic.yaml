@@ -39,3 +39,57 @@ workflows:
     artifacts:
       - artifacts/SBC1F_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC1F_SUMMARY.*
+
+  sbc-foundation-guard-macos:
+    name: SBC Foundation Guard — macOS/Apple
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: false
+      cancel_previous_builds: true
+    environment:
+      xcode: 26.4
+      cocoapods: default
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run permanent SBC foundation guard on Mac/Apple
+        script: |
+          bash "$CM_BUILD_DIR/ci/run_sbc1g_codemagic.sh"
+    artifacts:
+      - artifacts/SBC1G_MAC_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC1G_MAC_SUMMARY.*
+
+  sbc-foundation-guard-windows:
+    name: SBC Foundation Guard — Windows
+    instance_type: windows_x2
+    max_build_duration: 120
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: false
+      cancel_previous_builds: true
+    environment:
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run permanent SBC foundation guard on Windows
+        script: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CM_BUILD_DIR\ci\run_sbc1g_windows.ps1"
+    artifacts:
+      - artifacts/SBC1G_WINDOWS_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC1G_WINDOWS_SUMMARY.*
