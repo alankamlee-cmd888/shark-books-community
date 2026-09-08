@@ -13,7 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "workspace" / "Cargo.lock"
 BASELINE_GUARD = ROOT / "scripts" / "check_frozen_baseline.py"
-WORKFLOW = ROOT / ".github" / "workflows" / "sbc-foundation-guard.yml"
+CODEMAGIC = ROOT / "codemagic.yaml"
+GITHUB_FALLBACK = ROOT / ".github" / "workflows" / "sbc-foundation-guard.yml"
+MAC_HARNESS = ROOT / "ci" / "run_sbc1g_codemagic.sh"
+WINDOWS_HARNESS = ROOT / "ci" / "run_sbc1g_windows.ps1"
 POLICY = ROOT / "docs" / "SBC1G_CI_REGRESSION_AND_CHANGE_CONTROL_POLICY_2026-09-08.md"
 
 EXPECTED_LOCK_SHA256 = "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9"
@@ -135,34 +138,85 @@ def check_lock_packages() -> None:
             fail(f"critical package drift for {name}: expected {sorted(expected_versions)}, got {sorted(versions)}")
 
 
-def check_workflow_policy() -> None:
-    if not WORKFLOW.is_file():
-        fail("permanent foundation guard workflow is missing")
-    text = WORKFLOW.read_text(encoding="utf-8")
-    required = (
-        "pull_request:",
-        "push:",
-        "windows-latest",
-        "apple-native-compile",
-        "aarch64-apple-ios",
-        "aarch64-apple-ios-sim",
-        "check_sbc1g_change_control.py",
-        "check_frozen_baseline.py",
-        "cargo test -p shark-foundation --locked",
-        "cargo build -p shark-tauri-spike --locked",
-        "cargo metadata --locked",
-    )
-    for anchor in required:
+def require_anchors(path: Path, anchors: tuple[str, ...], label: str) -> str:
+    if not path.is_file():
+        fail(f"{label} is missing: {path.relative_to(ROOT)}")
+    text = path.read_text(encoding="utf-8")
+    for anchor in anchors:
         if anchor not in text:
-            fail(f"CI workflow missing required guard anchor: {anchor}")
+            fail(f"{label} missing required anchor: {anchor}")
+    return text
 
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+
+def require_locked_rust_commands(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
             continue
-        if "cargo " in stripped and any(f"cargo {verb}" in stripped for verb in ("test", "build", "check", "metadata", "fetch")):
-            if "--locked" not in stripped:
-                fail(f"normal Rust CI command is not locked: {stripped}")
+        if "cargo " not in line:
+            continue
+        if any(f"cargo {verb}" in line for verb in ("test", "build", "check", "metadata", "fetch")):
+            if "--locked" not in line:
+                fail(f"normal Rust CI command is not locked in {path.relative_to(ROOT)}: {line}")
+
+
+def check_workflow_policy() -> None:
+    codemagic = require_anchors(
+        CODEMAGIC,
+        (
+            "sbc-foundation-guard-macos:",
+            "sbc-foundation-guard-windows:",
+            "name: SBC Foundation Guard — macOS/Apple",
+            "name: SBC Foundation Guard — Windows",
+            "instance_type: mac_mini_m2",
+            "instance_type: windows_x2",
+            "- push",
+            "- pull_request",
+            "pattern: 'main'",
+            "source: false",
+            "cancel_previous_builds: true",
+            "run_sbc1g_codemagic.sh",
+            "run_sbc1g_windows.ps1",
+        ),
+        "Codemagic permanent foundation workflow",
+    )
+    if codemagic.count("sbc-foundation-guard-") < 2:
+        fail("Codemagic permanent guard must contain both Mac and Windows workflows")
+
+    require_anchors(
+        MAC_HARNESS,
+        (
+            "check_frozen_baseline.py",
+            "check_sbc1g_change_control.py",
+            "cargo metadata",
+            "cargo test",
+            "aarch64-apple-ios",
+            "aarch64-apple-ios-sim",
+            "shark-tauri-spike",
+        ),
+        "Codemagic Mac/Apple guard harness",
+    )
+    require_anchors(
+        WINDOWS_HARNESS,
+        (
+            "check_frozen_baseline.py",
+            "check_sbc1g_change_control.py",
+            "cargo metadata",
+            "cargo test",
+            "cargo build",
+            "shark-tauri-spike",
+        ),
+        "Codemagic Windows guard harness",
+    )
+    require_anchors(
+        GITHUB_FALLBACK,
+        ("workflow_dispatch:", "windows-latest", "aarch64-apple-ios"),
+        "GitHub Actions manual fallback workflow",
+    )
+
+    for path in (MAC_HARNESS, WINDOWS_HARNESS, GITHUB_FALLBACK):
+        require_locked_rust_commands(path)
 
     if not POLICY.is_file():
         fail("SBC-1G permanent CI/change-control policy document is missing")
