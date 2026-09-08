@@ -1,0 +1,75 @@
+{
+  "programme": "Shark Books Community",
+  "gate": "SBC-1F",
+  "date": "2026-09-08",
+  "status": "CANDIDATE_READY_FOR_CODEMAGIC_EXECUTION",
+  "base_head": "f7193c530aa3df0abc7c950e09c3a3a8fc21544d",
+  "objective": "Prove a browser application-adapter interface seam without changing the frozen native accounting/dependency foundation or claiming browser parity.",
+  "frozen_foundation": {
+    "beankeeper_commit": "d573db5e61089b0922f95c991732394d08e3cf92",
+    "sbc1c_production_facade_sha256": "6274cffc89ccb2fcea4d489e76375c9c5be1e3c8cc2fbd4c4e56b37bdef0ef46",
+    "root_cargo_lock_sha256": "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9",
+    "rust": "1.98.1"
+  },
+  "browser_contract": {
+    "crate": "browser/shark-browser-adapter-smoke",
+    "dependency_free": true,
+    "facade_api_version": 1,
+    "adapter_contract_version": 1,
+    "parity_claimed": false,
+    "persistence_candidate": "SQLite WASM + OPFS",
+    "native_sqlcipher_in_browser_contract": false,
+    "accounting_rules_in_browser_contract": false
+  },
+  "required_operations": [
+    "create_books",
+    "open_books",
+    "verify_books",
+    "metadata",
+    "migration_metadata",
+    "create_account",
+    "post_transaction",
+    "count_transactions",
+    "find_by_reference",
+    "transaction",
+    "trial_balance",
+    "import_ofx",
+    "reconcile_entry",
+    "audit_status_changes",
+    "attach_document",
+    "attachments"
+  ],
+  "required_proofs": [
+    "candidate diff is limited to SBC-1F browser smoke/harness/docs plus codemagic workflow",
+    "frozen baseline guard passes unchanged",
+    "root Cargo.lock SHA-256 remains unchanged",
+    "browser contract Cargo.toml has no dependencies",
+    "browser contract source contains no Beankeeper/rusqlite/SQLCipher/Tauri/native filesystem coupling",
+    "browser contract compiles for wasm32-unknown-unknown under Rust 1.98.1",
+    "browser type-only adapter tests pass on host",
+    "existing shark-foundation regression suite passes unchanged",
+    "native workspace graph resolves under the frozen lock",
+    "no browser feature parity claim is made",
+    "SBC-17 OPFS durability/performance backlog is recorded"
+  ],
+  "allowed_source_changes": [
+    "browser/shark-browser-adapter-smoke/Cargo.toml",
+    "browser/shark-browser-adapter-smoke/Cargo.lock",
+    "browser/shark-browser-adapter-smoke/src/lib.rs",
+    "browser/shark-browser-adapter-smoke/tests/interface.rs",
+    "ci/run_sbc1f_codemagic.sh",
+    "codemagic.yaml",
+    "docs/SBC1F_BROWSER_ADAPTER_CANDIDATE_CONTRACT_2026-09-08.json",
+    "docs/SBC17_BROWSER_OPFS_DURABILITY_BACKLOG_2026-09-08.md"
+  ],
+  "explicit_non_claims": [
+    "no browser/PWA feature parity",
+    "no production OPFS durability claim",
+    "no production browser encryption-at-rest claim",
+    "no browser UI",
+    "no tax logic",
+    "no OCR/AI/speech",
+    "no MTD filing",
+    "no change to native SQLCipher"
+  ]
+}
