@@ -2,9 +2,24 @@ $ErrorActionPreference = 'Stop'
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Runner = Join-Path $Repo 'research\sbc6_ocr_runtime\run_b3c_native_windows.py'
+$Bootstrap = Join-Path $Repo 'scripts\bootstrap_beankeeper.py'
+$BeankeeperRoot = Join-Path $Repo 'upstream\beankeeper'
+$BeankeeperManifest = Join-Path $BeankeeperRoot 'beankeeper\Cargo.toml'
+$BeankeeperPin = 'd573db5e61089b0922f95c991732394d08e3cf92'
 
 if ($env:OS -ne 'Windows_NT') {
     throw 'SBC-6B B3C proof must run on Windows.'
+}
+
+function Confirm-B3CBeankeeper {
+    if (-not (Test-Path $BeankeeperManifest)) {
+        throw "Frozen Beankeeper manifest was not materialised at $BeankeeperManifest"
+    }
+    $Observed = (& git -C $BeankeeperRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $Observed -ne $BeankeeperPin) {
+        throw "Frozen Beankeeper checkout mismatch. Expected $BeankeeperPin, observed $Observed"
+    }
+    Write-Host "[PASS] Frozen Beankeeper source materialised at $BeankeeperPin"
 }
 
 function Invoke-B3CCompatiblePython {
@@ -14,6 +29,11 @@ function Invoke-B3CCompatiblePython {
             $Version = & $Launcher.Source $Spec -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[INFO] SBC-6B B3C selected compatible CPython $Version via py $Spec"
+                & $Launcher.Source $Spec -B $Bootstrap
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Frozen Beankeeper materialisation failed with exit code $LASTEXITCODE"
+                }
+                Confirm-B3CBeankeeper
                 & $Launcher.Source $Spec -B $Runner --repo $Repo
                 if ($LASTEXITCODE -ne 0) {
                     throw "SBC-6B B3C proof failed with exit code $LASTEXITCODE"
@@ -29,6 +49,11 @@ function Invoke-B3CCompatiblePython {
         $Version = & $Python.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
         if ($LASTEXITCODE -eq 0 -and $Minor -match '^3\.(10|11|12|13)$') {
             Write-Host "[INFO] SBC-6B B3C selected compatible CPython $Version via python"
+            & $Python.Source -B $Bootstrap
+            if ($LASTEXITCODE -ne 0) {
+                throw "Frozen Beankeeper materialisation failed with exit code $LASTEXITCODE"
+            }
+            Confirm-B3CBeankeeper
             & $Python.Source -B $Runner --repo $Repo
             if ($LASTEXITCODE -ne 0) {
                 throw "SBC-6B B3C proof failed with exit code $LASTEXITCODE"
