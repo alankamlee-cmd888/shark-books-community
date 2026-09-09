@@ -86,8 +86,15 @@ def main() -> int:
     except UnicodeDecodeError:
         fail("Windows B0 harness must remain ASCII-safe")
     ps_text = ps.decode("ascii")
-    if "sbc6b_inventory_p1_runtime_v3.py" not in ps_text:
-        fail("Windows B0 harness must invoke the strict V3 inventory wrapper")
+    for anchor in (
+        "sbc6b_inventory_p1_runtime_v3.py",
+        "$env:PYTHONDONTWRITEBYTECODE = '1'",
+        "& $VenvPython -B $Validator",
+        "& $VenvPython -B $Generator",
+        "& $VenvPython -B $Inventory",
+    ):
+        if anchor not in ps_text:
+            fail(f"Windows B0 harness missing bytecode-safe/V3 anchor: {anchor}")
 
     inventory = (ROOT / "scripts" / "sbc6b_inventory_p1_runtime.py").read_text(encoding="utf-8")
     for anchor in (
@@ -106,6 +113,7 @@ def main() -> int:
 
     strict = (ROOT / "scripts" / "sbc6b_inventory_p1_runtime_v3.py").read_text(encoding="utf-8")
     for anchor in (
+        "sys.dont_write_bytecode = True",
         'os.environ["HF_HUB_OFFLINE"] = "1"',
         'os.environ["TRANSFORMERS_OFFLINE"] = "1"',
         'os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"',
@@ -130,7 +138,7 @@ def main() -> int:
     ):
         if anchor not in strict:
             fail(f"strict V3 inventory wrapper missing required anchor: {anchor}")
-    passed("B0 inventory code binds exact tiny ONNX names+directories, PaddleX pin, real ONNX payload checks, early offline flags, strict cache-resolution guard and evidence outputs")
+    passed("B0 inventory code binds exact tiny ONNX names+directories, PaddleX pin, real ONNX payload checks, early offline flags, bytecode-safe execution, strict cache-resolution guard and evidence outputs")
 
     print("[PASS] SBC-6B B0 runtime inventory gate preflight complete")
     return 0
