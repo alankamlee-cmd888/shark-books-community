@@ -24,14 +24,19 @@ try {
         throw 'SBC-6B inventory requires the cached SBC-6A venv from the completed Stage A benchmark.'
     }
 
-    & $VenvPython $Validator
+    # Keep proof execution from creating __pycache__ / .pyc files inside the
+    # repository. The V3 wrapper imports the audited base inventory module, so
+    # bytecode suppression must be active before the interpreter starts.
+    $env:PYTHONDONTWRITEBYTECODE = '1'
+
+    & $VenvPython -B $Validator
     Assert-ExitCode 'SBC-6B inventory gate validator'
 
     if (Test-Path $FixtureRoot) {
         Remove-Item -Recurse -Force $FixtureRoot
     }
     New-Item -ItemType Directory -Force -Path $FixtureRoot | Out-Null
-    & $VenvPython $Generator --output $FixtureRoot
+    & $VenvPython -B $Generator --output $FixtureRoot
     Assert-ExitCode 'SBC-6B deterministic smoke fixture generation'
 
     $SmokeImage = Join-Path $FixtureRoot 'images\r01__clean.png'
@@ -44,7 +49,7 @@ try {
     }
     New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 
-    & $VenvPython $Inventory --repo $Repo --smoke-image $SmokeImage --output $OutputRoot
+    & $VenvPython -B $Inventory --repo $Repo --smoke-image $SmokeImage --output $OutputRoot
     Assert-ExitCode 'SBC-6B P1 runtime inventory'
 
     git rev-parse HEAD | Out-File -Encoding ascii (Join-Path $OutputRoot 'GIT_HEAD.txt')
