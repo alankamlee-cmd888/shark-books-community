@@ -1,0 +1,123 @@
+name: SBC-6B B3C Native OCR Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.98.1"
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "1"
+
+jobs:
+  static-governance:
+    name: B3C static governance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Run exact bounded B3C static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_sbc6b_b3c_native_gate.py --static-only
+
+  windows-compile:
+    name: B3C Windows locked native compile
+    runs-on: windows-latest
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ref = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          git clone --branch $ref --single-branch "https://github.com/$env:GITHUB_REPOSITORY.git" .
+      - name: Select frozen Rust toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup default $env:RUST_TOOLCHAIN
+          rustc --version
+      - name: Materialise exact Beankeeper pin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/bootstrap_beankeeper.py
+      - name: Run frozen/current native guard and locked metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/check_frozen_baseline.py
+          python scripts/check_sbc1g_change_control.py --base-ref 376301ef8b23f7c393a332845737f51b27624603
+          cargo metadata --manifest-path workspace/Cargo.toml --locked --no-deps | Out-Null
+      - name: Compile Windows production Tauri shell under frozen lock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1
+      - name: Verify reviewed lock remains exact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $hash = (Get-FileHash workspace/Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9') { throw "Cargo.lock drift: $hash" }
+          if (git status --porcelain) { throw 'repository dirty after Windows compile' }
+
+  apple-compile:
+    name: B3C Apple physical and Simulator locked compile
+    runs-on: macos-15
+    steps:
+      - name: Checkout current branch without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --branch "$ref" --single-branch "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Select frozen Rust toolchain and Apple targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          rustc --version
+      - name: Materialise exact Beankeeper pin and prepare temporary Apple icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/bootstrap_beankeeper.py
+          cp workspace/shark-tauri-spike/icons/icon.png /tmp/sbc6b-b3c-icon-original.png
+          python3 ci/prepare_rgba_png.py workspace/shark-tauri-spike/icons/icon.png
+      - name: Compile physical Apple foundation and Tauri shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios --locked --jobs 1
+          cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios --locked --jobs 1
+      - name: Compile Apple Simulator foundation and Tauri shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path workspace/Cargo.toml -p shark-foundation --target aarch64-apple-ios-sim --locked --jobs 1
+          cargo build --manifest-path workspace/Cargo.toml -p shark-tauri-spike --target aarch64-apple-ios-sim --locked --jobs 1
+      - name: Restore source icon and verify reviewed lock
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/sbc6b-b3c-icon-original.png ]; then
+            cp /tmp/sbc6b-b3c-icon-original.png workspace/shark-tauri-spike/icons/icon.png
+          fi
+          lock_hash="$(shasum -a 256 workspace/Cargo.lock | awk '{print $1}')"
+          [ "$lock_hash" = '3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9' ]
+          test -z "$(git status --porcelain)"
