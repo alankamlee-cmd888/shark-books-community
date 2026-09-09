@@ -95,7 +95,9 @@ def main() -> int:
         "--onedir",
         "--copy-metadata",
         "restricted_env",
-        "where.exe",
+        'env["PATH"] = str(system32)',
+        "shutil.which(name, path=env[\"PATH\"])",
+        'system_root / "System32" / "where.exe"',
         "PYTHONHOME",
         "PYTHONPATH",
         "SBC6B_B3A_WINDOWS_PACKAGING.zip",
@@ -105,7 +107,9 @@ def main() -> int:
     ]:
         if anchor not in runner:
             fail(f"B3A runner missing required anchor: {anchor}")
-    passed("B3A runner contains self-contained/restricted-runtime proof anchors")
+    if 'str(system_root / "System32"), str(system_root)' in runner:
+        fail("B3A restricted runtime PATH must not include the Windows root containing py.exe")
+    passed("B3A runner contains self-contained/System32-only restricted-runtime proof anchors")
 
     run([sys.executable, str(ROOT / "scripts" / "check_frozen_baseline.py")])
     passed("Frozen foundation guard passes")
