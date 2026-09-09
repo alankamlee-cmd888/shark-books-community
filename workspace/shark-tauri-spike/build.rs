@@ -18,6 +18,7 @@ fn main() {
                 "books_open",
                 "books_verify",
                 "books_trial_balance",
+                "ocr_extract_receipt",
             ]),
         ),
     )
