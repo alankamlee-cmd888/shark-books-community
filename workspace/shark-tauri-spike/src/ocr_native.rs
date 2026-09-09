@@ -670,6 +670,7 @@ fn run_sidecar_for_document(
     let mut stderr_complete = false;
 
     let outcome = loop {
+        let mut stream_failure: Option<ShellOcrFailureKind> = None;
         while let Ok(event) = rx.try_recv() {
             match event {
                 StreamEvent::Complete { stdout: true, bytes } => stdout_bytes = Some(bytes),
@@ -677,18 +678,19 @@ fn run_sidecar_for_document(
                 StreamEvent::TooLarge { .. } => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    break ShellOcrOutcome::Failed {
-                        kind: ShellOcrFailureKind::ResourceLimit,
-                    };
+                    stream_failure = Some(ShellOcrFailureKind::ResourceLimit);
+                    break;
                 }
                 StreamEvent::Io { .. } => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    break ShellOcrOutcome::Failed {
-                        kind: ShellOcrFailureKind::EngineFailure,
-                    };
+                    stream_failure = Some(ShellOcrFailureKind::EngineFailure);
+                    break;
                 }
             }
+        }
+        if let Some(kind) = stream_failure {
+            break ShellOcrOutcome::Failed { kind };
         }
 
         if started.elapsed() >= timeout {
