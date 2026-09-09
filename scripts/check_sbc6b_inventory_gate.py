@@ -17,6 +17,7 @@ ALLOWED = {
     "docs/SBC6B_OCR_RUNTIME_ENTRY_CONTRACT_2026-09-09.md",
     "scripts/check_sbc6b_inventory_gate.py",
     "scripts/sbc6b_inventory_p1_runtime.py",
+    "scripts/sbc6b_inventory_p1_runtime_v3.py",
 }
 
 
@@ -59,7 +60,7 @@ def main() -> int:
     changed = {p for p in git("diff", "--name-only", f"{BASE}...HEAD").splitlines() if p}
     if changed != ALLOWED:
         fail(f"candidate diff is not exact B0 allowlist\nexpected={sorted(ALLOWED)}\nactual={sorted(changed)}")
-    passed("Candidate diff is exactly the authorised four-path B0 inventory set")
+    passed("Candidate diff is exactly the authorised five-path B0 inventory set")
 
     if any(p.startswith("product/") or p.startswith("workspace/") for p in changed):
         fail("B0 inventory gate may not change product/native source")
@@ -72,6 +73,7 @@ def main() -> int:
 
     for path in (
         ROOT / "scripts" / "sbc6b_inventory_p1_runtime.py",
+        ROOT / "scripts" / "sbc6b_inventory_p1_runtime_v3.py",
         ROOT / "ci" / "run_sbc6b_inventory_windows.ps1",
         ROOT / "docs" / "SBC6B_OCR_RUNTIME_ENTRY_CONTRACT_2026-09-09.md",
     ):
@@ -83,6 +85,9 @@ def main() -> int:
         ps.decode("ascii")
     except UnicodeDecodeError:
         fail("Windows B0 harness must remain ASCII-safe")
+    ps_text = ps.decode("ascii")
+    if "sbc6b_inventory_p1_runtime_v3.py" not in ps_text:
+        fail("Windows B0 harness must invoke the strict V3 inventory wrapper")
 
     inventory = (ROOT / "scripts" / "sbc6b_inventory_p1_runtime.py").read_text(encoding="utf-8")
     for anchor in (
@@ -97,8 +102,25 @@ def main() -> int:
         "SBC6B_P1_LICENSE_FILES.csv",
     ):
         if anchor not in inventory:
-            fail(f"inventory script missing required anchor: {anchor}")
-    passed("B0 inventory script contains selected-runtime, asset, SBOM and no-network anchors")
+            fail(f"base inventory script missing required anchor: {anchor}")
+
+    strict = (ROOT / "scripts" / "sbc6b_inventory_p1_runtime_v3.py").read_text(encoding="utf-8")
+    for anchor in (
+        'DET_MODEL = "PP-OCRv6_tiny_det"',
+        'REC_MODEL = "PP-OCRv6_tiny_rec"',
+        'return (f"{name}_onnx",)',
+        "resolve_model_name(model_name=DET_MODEL",
+        "resolve_model_name(model_name=REC_MODEL",
+        "text_detection_model_name=DET_MODEL",
+        "text_detection_model_dir=str(models[DET_MODEL])",
+        "text_recognition_model_name=REC_MODEL",
+        "text_recognition_model_dir=str(models[REC_MODEL])",
+        'engine="onnxruntime"',
+        'base.OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v3"',
+    ):
+        if anchor not in strict:
+            fail(f"strict V3 inventory wrapper missing required anchor: {anchor}")
+    passed("B0 inventory code binds exact tiny ONNX names+directories and preserves SBOM/no-network evidence")
 
     print("[PASS] SBC-6B B0 runtime inventory gate preflight complete")
     return 0
