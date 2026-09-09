@@ -71,6 +71,8 @@ Run from a fresh canonical-LF checkout of the exact candidate:
 
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\ci\run_sbc6b_b3c_windows.ps1`
 
+The launcher must select a CPython version compatible with the already-frozen B3A/B3B packaging pins. `onnxruntime==1.23.2` has Windows wheels for CPython 3.10 through 3.13 but not CPython 3.14. The launcher therefore tries Python 3.13, 3.12, 3.11 and 3.10 via the Windows `py` launcher before considering the default `python` command. It must not upgrade ONNX Runtime merely to accommodate a newer host interpreter because that would change the previously validated OCR runtime.
+
 The proof rebuilds the already-frozen B3B onedir sidecar with the inherited pinned runtime, verifies the four selected PP-OCRv6 Tiny model hashes, selects a frozen receipt fixture, and runs the B3C static/runtime gate.
 
 Required Windows proofs include:
@@ -93,6 +95,16 @@ Required Windows proofs include:
 Expected evidence archive:
 
 `C:\SharkBooks-SBC6B-B3C\SBC6B_B3C_NATIVE_TAURI_INTEGRATION.zip`
+
+### Windows V1 harness stop and V2 repair — 9 September 2026
+
+The first returned B3C Windows attempt stopped before product/static/runtime validation while creating the temporary packaging environment. The launcher had invoked the user's default `python`, which was too new for the frozen `onnxruntime==1.23.2` Windows wheel set. Pip therefore reported no matching 1.23.2 distribution while showing later ONNX Runtime versions.
+
+Classification: **HARNESS / HOST INTERPRETER COMPATIBILITY ONLY**.
+
+No B3C Rust/Tauri product test ran, no OCR model/runtime pin changed, no Cargo/dependency/foundation state changed, and no PASS claim was made.
+
+Bounded V2 repair: `ci/run_sbc6b_b3c_windows.ps1` now selects the newest installed compatible CPython from 3.13/3.12/3.11/3.10 and only then invokes the unchanged proof. If none is installed it fails with a specific instruction instead of allowing pip to select newer OCR dependencies.
 
 ## Apple regression proof
 
