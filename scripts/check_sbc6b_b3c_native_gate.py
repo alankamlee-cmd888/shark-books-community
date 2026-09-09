@@ -23,7 +23,6 @@ PERMISSION = ROOT / "workspace" / "shark-tauri-spike" / "permissions" / "shark-s
 CAPABILITY = ROOT / "workspace" / "shark-tauri-spike" / "capabilities" / "default.json"
 
 ALLOWED_PATHS = {
-    ".github/workflows/sbc6b-b3c-gate.yml",
     "ci/run_sbc6b_b3c_codemagic.sh",
     "ci/run_sbc6b_b3c_windows.ps1",
     "codemagic.yaml",
@@ -149,7 +148,7 @@ def static_checks() -> None:
             "candidate diff is not exact B3C allowlist\n"
             f"expected={sorted(ALLOWED_PATHS)}\nactual={sorted(changed)}"
         )
-    passed("Candidate diff is exactly the authorised twelve-path B3C set")
+    passed("Candidate diff is exactly the authorised eleven-path B3C set")
 
     for path in UNCHANGED_PATHS:
         p = subprocess.run(
