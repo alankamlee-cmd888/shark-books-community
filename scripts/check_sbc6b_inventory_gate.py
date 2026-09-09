@@ -106,9 +106,14 @@ def main() -> int:
 
     strict = (ROOT / "scripts" / "sbc6b_inventory_p1_runtime_v3.py").read_text(encoding="utf-8")
     for anchor in (
+        'os.environ["HF_HUB_OFFLINE"] = "1"',
+        'os.environ["TRANSFORMERS_OFFLINE"] = "1"',
+        'os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"',
         'DET_MODEL = "PP-OCRv6_tiny_det"',
         'REC_MODEL = "PP-OCRv6_tiny_rec"',
         'return (f"{name}_onnx",)',
+        "socket.socket.connect_ex = blocked_connect_ex",
+        "def strict_resolve_models()",
         "resolve_model_name(model_name=DET_MODEL",
         "resolve_model_name(model_name=REC_MODEL",
         "text_detection_model_name=DET_MODEL",
@@ -117,10 +122,12 @@ def main() -> int:
         "text_recognition_model_dir=str(models[REC_MODEL])",
         'engine="onnxruntime"',
         'base.OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v3"',
+        "base.resolve_models = strict_resolve_models",
+        "base.local_model_smoke = strict_local_model_smoke",
     ):
         if anchor not in strict:
             fail(f"strict V3 inventory wrapper missing required anchor: {anchor}")
-    passed("B0 inventory code binds exact tiny ONNX names+directories and preserves SBOM/no-network evidence")
+    passed("B0 inventory code binds exact tiny ONNX names+directories, early offline flags, strict cache-resolution guard and evidence outputs")
 
     print("[PASS] SBC-6B B0 runtime inventory gate preflight complete")
     return 0
