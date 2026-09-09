@@ -17,7 +17,7 @@ This is a packaging proof only. It does not add a Tauri command, product adapter
 
 ## Frozen input
 
-Entry protected main: B2 merge.
+Entry protected main: B2 merge `7e43cb8a64097679028b1f4154172f07eadfcfa5`.
 
 OCR engine/model behaviour is inherited unchanged from `research/sbc6_ocr_runtime/direct_onnx_parity.py`. The B3A branch is not permitted to modify that file.
 
@@ -62,9 +62,10 @@ The selected model hashes must remain the B1 values:
 The frozen executable must run with an intentionally restricted environment:
 
 - absolute executable path;
-- `PATH` reduced to Windows system directories only;
+- `PATH` reduced to the Windows `System32` directory only;
+- the Windows root itself is deliberately excluded because the standard launcher may exist at `C:\Windows\py.exe` even when the package does not depend on system Python;
 - `PYTHONHOME` and `PYTHONPATH` removed;
-- `where python` and `where py` must not resolve through the restricted PATH;
+- both `shutil.which` and absolute `System32\where.exe` checks must show that neither `python` nor `py` resolves through the restricted PATH;
 - package-local selected model copies only;
 - all 48 frozen synthetic receipt fixtures;
 - same B1 quality/resource gates;
@@ -73,6 +74,19 @@ The frozen executable must run with an intentionally restricted environment:
 - PaddleOCR and PaddleX absent.
 
 The proof does not claim that process-level Python socket interception is a universal operating-system egress sandbox. It proves that the selected frozen Python OCR path itself has no permitted Python TCP connection surface while document OCR executes. Release-level installer/firewall/sandbox decisions remain a later hardening concern.
+
+## V1 restricted-PATH harness failure and repair
+
+The first B3A Windows attempt successfully built the PyInstaller onedir bundle, retained the exact model hashes and produced a package manifest of **543 files / 246,722,926 bytes**. It then stopped before running the frozen OCR executable because the proof PATH included both `C:\Windows\System32` and `C:\Windows`. On the proof machine, `C:\Windows\py.exe` therefore remained resolvable.
+
+This is a proof-harness environment-definition defect, not evidence that the frozen bundle requires Python. The executable had not yet been invoked under the restricted runtime environment.
+
+The repair is bounded to the B3A evidence harness:
+
+- restricted PATH is now `System32` only;
+- Windows root is excluded;
+- `shutil.which` and absolute `where.exe` independently verify that both `python` and `py` are absent from the effective runtime PATH;
+- no B1 OCR code, model file, model hash, package pin, product source, native workspace, Cargo lock, Tauri command or accounting behaviour changes.
 
 ## Quality gates
 
