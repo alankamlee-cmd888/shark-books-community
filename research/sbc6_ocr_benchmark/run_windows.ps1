@@ -32,9 +32,6 @@ try {
         throw 'Repository must be clean before SBC-6A benchmark proof.'
     }
 
-    python $Validator --static-only
-    Assert-ExitCode 'SBC-6A static validator'
-
     $BootstrapExe = $null
     $BootstrapArgs = @()
     if (Get-Command py -ErrorAction SilentlyContinue) {
@@ -47,6 +44,9 @@ try {
     else {
         throw 'Python 3 is required. Install a supported Python 3.10-3.13 interpreter and rerun.'
     }
+
+    & $BootstrapExe @BootstrapArgs $Validator --static-only
+    Assert-ExitCode 'SBC-6A static validator'
 
     if (-not $OfflineProof) {
         if (Test-Path $Venv) {
@@ -78,7 +78,7 @@ try {
         Write-Host '[BLOCKED] Tesseract 5.5.3 baseline is not installed.'
         Write-Host 'Install it, then rerun this same command:'
         Write-Host '  winget install --id tesseract-ocr.tesseract --exact --version 5.5.3'
-        exit 3
+        throw 'Tesseract baseline missing; no OCR benchmark was run.'
     }
     if ($TesseractExe) {
         $VersionLine = (& $TesseractExe --version | Select-Object -First 1)
