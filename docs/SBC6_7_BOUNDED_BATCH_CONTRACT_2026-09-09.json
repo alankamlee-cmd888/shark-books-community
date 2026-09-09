@@ -1,0 +1,85 @@
+{
+  "programme": "Shark Books Community",
+  "batch": "SBC-6 + SBC-7 bounded batch",
+  "date": "2026-09-09",
+  "entry_main": "d20a356e374e6b7b56d4f025503896506a6027ce",
+  "status": "AUTHORISED_HARD_GATED_RESEARCH_AND_IMPLEMENTATION_BATCH",
+  "purpose": "Complete OCR/receipt matching and the owner-facing UI without opening tax, AI, speech, MTD filing or browser-parity work.",
+  "stages": [
+    {
+      "id": "A",
+      "gate": "SBC-6A research benchmark interface adjudication",
+      "allowed": [
+        "synthetic/licensable receipt benchmark",
+        "factual extraction schema",
+        "PaddleOCR-family versus credible local baseline benchmark",
+        "runtime/interface architecture comparison",
+        "deterministic receipt-to-record matching design",
+        "privacy/no-egress proof design",
+        "SBC-7 information architecture preparation"
+      ],
+      "hard_stop": "No OCR production dependency or product wiring before Stage A PASS."
+    },
+    {
+      "id": "B",
+      "gate": "SBC-6 OCR runtime",
+      "hard_stop": "Only the Stage A selected runtime/model/version may be introduced; dependency-change controls apply."
+    },
+    {
+      "id": "C",
+      "gate": "SBC-6 deterministic receipt matching",
+      "hard_stop": "OCR facts may suggest matches only; user confirmation remains mandatory before accounting action."
+    },
+    {
+      "id": "D",
+      "gate": "SBC-6 platform and regression proof",
+      "hard_stop": "SBC-7 product implementation remains blocked until SBC-6 PASS."
+    },
+    {
+      "id": "E",
+      "gate": "SBC-7 owner-facing UI contract",
+      "allowed": [
+        "navigation and information architecture",
+        "journey fixtures",
+        "component/reuse adjudication",
+        "accessibility and empty/error state contracts"
+      ]
+    },
+    {
+      "id": "F",
+      "gate": "SBC-7 bounded UI implementation",
+      "hard_stop": "UI must call Shark-owned application/facade contracts and must not own accounting rules."
+    },
+    {
+      "id": "G",
+      "gate": "SBC-6/7 integrated user journey acceptance",
+      "required_flow": "receipt/document -> OCR facts -> deterministic suggestion -> user confirmation -> existing bookkeeping/document path -> visible UI state"
+    },
+    {
+      "id": "H",
+      "gate": "SBC-8 specification only",
+      "hard_stop": "No SBC-8 product implementation inside this batch."
+    }
+  ],
+  "non_negotiables": [
+    "No Shark central ledger or document custody.",
+    "Native production books remain SQLCipher encrypted.",
+    "No raw SQLite/rusqlite/Beankeeper persistence surface to UI or OCR.",
+    "All accounting persistence remains behind the approved Shark facade and validation-before-persistence invariant.",
+    "OCR extracts factual evidence only; no tax/accounting category, deductibility, VAT, CIS, payroll or company judgement.",
+    "No silent matching, posting, clearing or reconciliation from OCR.",
+    "No Open Banking.",
+    "No direct HMRC filing.",
+    "No local LLM/Qwen action layer.",
+    "No speech implementation.",
+    "No browser/PWA parity claim.",
+    "Dependency changes require exact pins, licence/NOTICE review, SBOM/adjudication and relevant Windows/Apple proof."
+  ],
+  "batch_exit": [
+    "SBC-6 PASS and merged",
+    "SBC-7 PASS and merged",
+    "combined user-journey acceptance PASS",
+    "no unapproved frozen-boundary drift",
+    "SBC-8 implementation contract prepared but not executed"
+  ]
+}
