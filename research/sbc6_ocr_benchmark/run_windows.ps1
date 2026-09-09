@@ -26,29 +26,47 @@ function Assert-ExitCode([string]$Label) {
     }
 }
 
+function Select-SupportedPython {
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        foreach ($Minor in @('3.13','3.12','3.11','3.10')) {
+            & py "-$Minor" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == tuple(map(int, '$Minor'.split('.'))) else 2)" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                return @{ Exe = 'py'; Args = @("-$Minor"); Label = "Python $Minor via py launcher" }
+            }
+        }
+    }
+
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        & python -c "import sys; raise SystemExit(0 if (3,10) <= sys.version_info[:2] <= (3,13) else 2)" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $Version = (& python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
+            return @{ Exe = 'python'; Args = @(); Label = "Python $Version" }
+        }
+    }
+
+    return $null
+}
+
 Push-Location $Repo
 try {
     if (git status --short) {
         throw 'Repository must be clean before SBC-6A benchmark proof.'
     }
 
-    $BootstrapExe = $null
-    $BootstrapArgs = @()
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        $BootstrapExe = 'py'
-        $BootstrapArgs = @('-3')
+    $Bootstrap = Select-SupportedPython
+    if (-not $Bootstrap) {
+        Write-Host '[BLOCKED] SBC-6A requires CPython 3.10-3.13 because the frozen onnxruntime 1.23.2 comparator has no Windows CPython 3.14 wheel.'
+        Write-Host 'Install Python 3.13, then rerun this same benchmark command:'
+        Write-Host '  winget install --id Python.Python.3.13 --exact'
+        throw 'No supported CPython 3.10-3.13 interpreter is installed; no OCR benchmark was run.'
     }
-    elseif (Get-Command python -ErrorAction SilentlyContinue) {
-        $BootstrapExe = 'python'
-    }
-    else {
-        throw 'Python 3 is required. Install a supported Python 3.10-3.13 interpreter and rerun.'
-    }
+    $BootstrapExe = [string]$Bootstrap.Exe
+    $BootstrapArgs = @($Bootstrap.Args)
+    Write-Host ("[PASS] Supported benchmark interpreter selected: {0}" -f $Bootstrap.Label)
 
     & $BootstrapExe @BootstrapArgs $Validator --static-only
     Assert-ExitCode 'SBC-6A static validator'
 
-    # Check the external Tesseract control before installing the heavier Python OCR stack.
     $TesseractExe = $null
     $TesseractCommand = Get-Command tesseract -ErrorAction SilentlyContinue
     if ($TesseractCommand) {
@@ -63,7 +81,7 @@ try {
         Write-Host '[BLOCKED] Tesseract 5.5.3 baseline is not installed.'
         Write-Host 'Install it, then rerun this same command:'
         Write-Host '  winget install --id tesseract-ocr.tesseract --exact --version 5.5.3'
-        throw 'Tesseract baseline missing; no OCR dependency installation or benchmark was run.'
+        throw 'Tesseract baseline missing; no OCR benchmark was run.'
     }
     if ($TesseractExe) {
         $VersionLine = (& $TesseractExe --version | Select-Object -First 1)
@@ -79,6 +97,8 @@ try {
         }
         & $BootstrapExe @BootstrapArgs -m venv $Venv
         Assert-ExitCode 'Python venv creation'
+        & $VenvPython -c "import sys; assert (3,10) <= sys.version_info[:2] <= (3,13), sys.version"
+        Assert-ExitCode 'Python version check before dependency installation'
         & $VenvPython -m pip install --disable-pip-version-check -r $Requirements
         Assert-ExitCode 'Research dependency installation'
     }
