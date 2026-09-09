@@ -12,17 +12,25 @@ but tightens the runtime assumptions discovered by Windows proof:
 3. PaddleX reads model-source flags at import time, so offline/model-source flags
    must be set before any PaddleX import performed by cache resolution;
 4. the Stage A winner actually ran with PaddleX 3.7.2, so B0 must reject drift in
-   that orchestration layer as well as PaddleOCR and ONNX Runtime.
+   that orchestration layer as well as PaddleOCR and ONNX Runtime;
+5. proof execution must not create Python bytecode inside the repository before
+   the base inventory performs its clean-worktree assertion.
 """
 from __future__ import annotations
 
 import json
 import os
 import socket
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+# Prevent this wrapper importing the audited base module from creating
+# scripts/__pycache__ inside the proof checkout. The Windows runner also uses
+# Python -B and PYTHONDONTWRITEBYTECODE as independent defence in depth.
+sys.dont_write_bytecode = True
 
 # These must be established before any PaddleX/Hugging Face model-resolution
 # module is imported. PaddleX reads DISABLE_MODEL_SOURCE_CHECK at import time.
