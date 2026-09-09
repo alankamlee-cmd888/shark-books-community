@@ -19,7 +19,7 @@ from typing import Any
 
 SELECTED = {"paddleocr": "3.7.0", "onnxruntime": "1.23.2"}
 MODEL_NAMES = ("PP-OCRv6_tiny_det", "PP-OCRv6_tiny_rec")
-OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v1"
+OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v2"
 
 
 def sha256(path: Path) -> str:
@@ -54,20 +54,147 @@ def csv_write(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> 
         writer.writerows(rows)
 
 
-def resolve_models() -> dict[str, Path]:
-    # PaddleX release/3.7 official_models.py uses CACHE_DIR/official_models;
-    # standard Windows installs resolve CACHE_DIR beneath ~/.paddlex.
-    root = Path.home() / ".paddlex" / "official_models"
-    if not root.is_dir():
-        fail(f"PaddleX official-model cache not found: {root}")
+def nonempty_model_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    try:
+        return any(child.is_file() for child in path.rglob("*"))
+    except OSError:
+        return False
+
+
+def cache_roots() -> list[Path]:
+    roots: list[Path] = []
+    try:
+        from paddlex.utils.cache import CACHE_DIR
+
+        roots.append(Path(CACHE_DIR))
+    except Exception:
+        pass
+
+    env_cache = os.environ.get("PADDLE_PDX_CACHE_HOME")
+    if env_cache:
+        roots.append(Path(env_cache))
+
+    roots.append(Path.home() / ".paddlex")
+
+    # These are fallback discovery roots only. Nothing is downloaded here.
+    hf_hub = os.environ.get("HF_HUB_CACHE")
+    if hf_hub:
+        roots.append(Path(hf_hub))
+    else:
+        roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+
+    ms_cache = os.environ.get("MODELSCOPE_CACHE")
+    if ms_cache:
+        roots.append(Path(ms_cache))
+    else:
+        roots.append(Path.home() / ".cache" / "modelscope")
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root.expanduser().resolve(strict=False)).lower()
+        if key not in seen:
+            unique.append(root.expanduser())
+            seen.add(key)
+    return unique
+
+
+def local_variants(name: str) -> tuple[str, ...]:
+    # PaddleX can resolve an official model to a runtime-format-specific cache name.
+    # ONNX Runtime is the frozen Stage A engine, so prefer the _onnx form when present.
+    return (f"{name}_onnx", name, f"{name}_safetensors")
+
+
+def hf_snapshot_candidates(root: Path, variant: str) -> list[Path]:
+    repo = root / f"models--PaddlePaddle--{variant}"
+    snapshots = repo / "snapshots"
+    if not snapshots.is_dir():
+        return []
+    return sorted((p for p in snapshots.iterdir() if nonempty_model_dir(p)), key=lambda p: p.name)
+
+
+def modelscope_candidates(root: Path, variant: str) -> list[Path]:
+    candidates = [
+        root / "hub" / "models" / "PaddlePaddle" / variant,
+        root / "hub" / "PaddlePaddle" / variant,
+        root / "models" / "PaddlePaddle" / variant,
+        root / "PaddlePaddle" / variant,
+    ]
+    return [p for p in candidates if nonempty_model_dir(p)]
+
+
+def resolve_one_model(name: str) -> tuple[Path, dict[str, Any]]:
+    examined: list[str] = []
+    roots = cache_roots()
+
+    for variant in local_variants(name):
+        for root in roots:
+            # PaddleX native official-model cache.
+            direct_candidates = [
+                root / "official_models" / variant,
+                root / variant,
+            ]
+            for candidate in direct_candidates:
+                examined.append(str(candidate))
+                if nonempty_model_dir(candidate):
+                    return candidate.resolve(), {
+                        "requested_name": name,
+                        "resolved_name": variant,
+                        "source": "direct_cache",
+                        "cache_root": str(root),
+                    }
+
+            # Hugging Face snapshot cache fallback.
+            for candidate in hf_snapshot_candidates(root, variant):
+                examined.append(str(candidate))
+                return candidate.resolve(), {
+                    "requested_name": name,
+                    "resolved_name": variant,
+                    "source": "huggingface_snapshot_cache",
+                    "cache_root": str(root),
+                }
+
+            # ModelScope cache fallback.
+            for candidate in modelscope_candidates(root, variant):
+                examined.append(str(candidate))
+                return candidate.resolve(), {
+                    "requested_name": name,
+                    "resolved_name": variant,
+                    "source": "modelscope_cache",
+                    "cache_root": str(root),
+                }
+
+    # Bounded diagnostic: report nearby official model directories, not the whole profile.
+    nearby: list[str] = []
+    for root in roots:
+        official = root / "official_models"
+        if not official.is_dir():
+            continue
+        try:
+            nearby.extend(sorted(p.name for p in official.iterdir() if p.is_dir())[:80])
+        except OSError:
+            pass
+
+    fail(
+        "selected cached model directory could not be resolved for "
+        f"{name}; checked runtime-format variants {local_variants(name)}; "
+        f"nearby official-model directories={sorted(set(nearby))}; "
+        f"examined_count={len(examined)}"
+    )
+    raise AssertionError
+
+
+def resolve_models() -> tuple[dict[str, Path], dict[str, dict[str, Any]]]:
     resolved: dict[str, Path] = {}
+    metadata: dict[str, dict[str, Any]] = {}
     for name in MODEL_NAMES:
-        path = root / name
-        if not path.is_dir():
-            fail(f"selected cached model directory missing: {path}")
+        path, meta = resolve_one_model(name)
         resolved[name] = path
-    passed(f"Selected P1 model directories found under {root}")
-    return resolved
+        metadata[name] = {**meta, "path": str(path)}
+        passed(f"Resolved selected P1 cache asset {name} -> {path}")
+    return resolved, metadata
 
 
 def inventory_tree(label: str, root: Path) -> list[dict[str, Any]]:
@@ -241,7 +368,7 @@ def main() -> int:
             fail(f"{name} version drift: expected {expected}, got {actual}")
     passed("Selected P1 direct runtime package versions are exact")
 
-    models = resolve_models()
+    models, model_resolution = resolve_models()
 
     if output.exists():
         shutil.rmtree(output)
@@ -253,7 +380,7 @@ def main() -> int:
         rows = inventory_tree(name, root)
         model_rows.extend(rows)
         model_summary[name] = {
-            "path": str(root),
+            **model_resolution[name],
             "file_count": len(rows),
             "total_bytes": sum(int(row["size_bytes"]) for row in rows),
             "tree_sha256": hashlib.sha256(
@@ -310,6 +437,8 @@ def main() -> int:
         "selected: PaddleOCR 3.7.0 / ONNX Runtime 1.23.2 / PP-OCRv6 tiny det+rec / CPU",
         f"python_distributions: {len(package_rows)}",
         f"license_files: {len(license_rows)}",
+        f"det_model_resolved: {model_summary['PP-OCRv6_tiny_det']['resolved_name']}",
+        f"rec_model_resolved: {model_summary['PP-OCRv6_tiny_rec']['resolved_name']}",
         f"det_model_bytes: {model_summary['PP-OCRv6_tiny_det']['total_bytes']}",
         f"rec_model_bytes: {model_summary['PP-OCRv6_tiny_rec']['total_bytes']}",
         f"smoke_network_guard: {smoke['network_guard']}",
