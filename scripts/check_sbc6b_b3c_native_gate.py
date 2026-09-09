@@ -16,26 +16,24 @@ BASE = "376301ef8b23f7c393a332845737f51b27624603"
 RUST_TOOLCHAIN = "1.98.1"
 LOCK = ROOT / "workspace" / "Cargo.lock"
 LOCK_SHA256 = "3239385c688f64120a6701cdf3f603134950902f2591bae6b7be7248388ec4a9"
-TAURI_MANIFEST = ROOT / "workspace" / "shark-tauri-spike" / "Cargo.toml"
 TAURI_SOURCE = ROOT / "workspace" / "shark-tauri-spike" / "src" / "lib.rs"
 OCR_SOURCE = ROOT / "workspace" / "shark-tauri-spike" / "src" / "ocr_native.rs"
 BUILD_RS = ROOT / "workspace" / "shark-tauri-spike" / "build.rs"
 PERMISSION = ROOT / "workspace" / "shark-tauri-spike" / "permissions" / "shark-shell.toml"
 CAPABILITY = ROOT / "workspace" / "shark-tauri-spike" / "capabilities" / "default.json"
-TAURI_CONFIG = ROOT / "workspace" / "shark-tauri-spike" / "tauri.conf.json"
 
 ALLOWED_PATHS = {
     ".github/workflows/sbc6b-b3c-gate.yml",
     "ci/run_sbc6b_b3c_windows.ps1",
     "docs/SBC6B_B3C_NATIVE_TAURI_INTEGRATION_PLAN_2026-09-09.md",
     "research/sbc6_ocr_runtime/run_b3c_native_windows.py",
+    "scripts/check_frozen_baseline.py",
     "scripts/check_sbc6b_b3c_native_gate.py",
     "workspace/shark-tauri-spike/build.rs",
     "workspace/shark-tauri-spike/permissions/shark-shell.toml",
     "workspace/shark-tauri-spike/src/lib.rs",
     "workspace/shark-tauri-spike/src/ocr_native.rs",
 }
-
 UNCHANGED_PATHS = (
     "workspace/Cargo.toml",
     "workspace/Cargo.lock",
@@ -43,12 +41,12 @@ UNCHANGED_PATHS = (
     "workspace/shark-tauri-spike/tauri.conf.json",
     "workspace/shark-tauri-spike/capabilities/default.json",
     "workspace/shark-foundation/Cargo.toml",
+    "workspace/shark-foundation/src/lib.rs",
     "product/shark-books-core/Cargo.toml",
     "product/shark-books-core/src/ocr.rs",
     "product/shark-books-core/src/documents.rs",
     "product/ocr-runtime/windows/shark_ocr_single.py",
 )
-
 REQUIRED_OCR_ANCHORS = (
     'const SIDECAR_SCHEMA: &str = "sbc6b.single_document.v1"',
     "pub(crate) struct NativeOcrRegistry",
@@ -80,24 +78,13 @@ REQUIRED_OCR_ANCHORS = (
     "windows_wrong_hash_is_rejected_by_verified_sidecar_before_ocr",
     "windows_timeout_is_owned_by_rust_and_child_is_terminated",
 )
-
 FORBIDDEN_NATIVE_MARKERS = (
-    "std::net",
-    "reqwest",
-    "ureq",
-    "tokio::net",
-    'Command::new("cmd',
-    'Command::new("powershell',
-    'Command::new("sh',
-    '.arg("/C")',
-    '.arg("-c")',
-    "http://",
-    "https://",
-    "confirm_match",
-    "finalize_reconciliation",
-    "PostingPlan",
-    "ExpenseCategory",
-    "IncomeCategory",
+    "std::net", "reqwest", "ureq", "tokio::net",
+    'Command::new("cmd', 'Command::new("powershell', 'Command::new("sh',
+    '.arg("/C")', '.arg("-c")',
+    "http://", "https://",
+    "confirm_match", "finalize_reconciliation",
+    "PostingPlan", "ExpenseCategory", "IncomeCategory",
 )
 
 
@@ -120,12 +107,8 @@ def sha256(path: Path) -> str:
 
 def git(*args: str) -> str:
     p = subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+        ["git", *args], cwd=ROOT, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
     if p.returncode:
         fail(f"git {' '.join(args)} failed: {p.stderr.strip()}")
@@ -134,13 +117,8 @@ def git(*args: str) -> str:
 
 def run(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     p = subprocess.run(
-        args,
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+        args, cwd=ROOT, env=env, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
     if p.stdout:
         print(p.stdout, end="" if p.stdout.endswith("\n") else "\n")
@@ -158,9 +136,7 @@ def static_checks() -> None:
 
     head = git("rev-parse", "HEAD")
     if subprocess.run(
-        ["git", "merge-base", "--is-ancestor", BASE, "HEAD"],
-        cwd=ROOT,
-        check=False,
+        ["git", "merge-base", "--is-ancestor", BASE, "HEAD"], cwd=ROOT, check=False
     ).returncode:
         fail("B3B protected merge is not B3C candidate ancestor")
     passed(f"B3B protected merge is candidate ancestor; HEAD {head}")
@@ -171,17 +147,16 @@ def static_checks() -> None:
             "candidate diff is not exact B3C allowlist\n"
             f"expected={sorted(ALLOWED_PATHS)}\nactual={sorted(changed)}"
         )
-    passed("Candidate diff is exactly the authorised nine-path B3C set")
+    passed("Candidate diff is exactly the authorised ten-path B3C set")
 
     for path in UNCHANGED_PATHS:
         p = subprocess.run(
             ["git", "diff", "--quiet", f"{BASE}...HEAD", "--", path],
-            cwd=ROOT,
-            check=False,
+            cwd=ROOT, check=False,
         )
         if p.returncode != 0:
             fail(f"frozen path changed during B3C: {path}")
-    passed("Cargo manifests/locks, capability, B2/SBC5 contracts and B3B sidecar are unchanged")
+    passed("Dependency/accounting/B2/SBC5/B3B foundation paths remain unchanged")
 
     if sha256(LOCK) != LOCK_SHA256:
         fail("reviewed native Cargo.lock hash drift")
@@ -194,10 +169,12 @@ def static_checks() -> None:
     for marker in FORBIDDEN_NATIVE_MARKERS:
         if marker.lower() in source.lower():
             fail(f"native OCR source contains forbidden marker: {marker}")
-    passed("Native OCR host has fixed process boundary, local-only guards and typed failure controls")
+    passed("Native OCR host has fixed local process boundary and typed failure controls")
 
     request_start = source.find("pub(crate) struct OcrReceiptCommandRequest")
     request_end = source.find("\n}\n", request_start)
+    if request_start < 0 or request_end < 0:
+        fail("webview OCR request structure not found")
     request_block = source[request_start: request_end + 3]
     for forbidden in (
         "path", "sha256", "byte_len", "model", "executable", "url",
@@ -231,17 +208,16 @@ def static_checks() -> None:
     passed("AppManifest/permission are explicit and capability remains bounded")
 
     run([sys.executable, str(ROOT / "scripts" / "check_frozen_baseline.py")])
-    passed("Frozen foundation baseline guard passes")
+    passed("Frozen accounting/dependency + bounded current native-shell guard passes")
 
     change = run([
         sys.executable,
         str(ROOT / "scripts" / "check_sbc1g_change_control.py"),
-        "--base-ref",
-        BASE,
+        "--base-ref", BASE,
     ]).stdout
     if "dependency_changed=false" not in change or "apple_native_changed=true" not in change:
         fail("permanent change-control classification is not dependency=false/apple-native=true")
-    passed("Permanent change control classifies B3C correctly")
+    passed("Permanent change control classifies B3C correctly and passes")
 
     if git("status", "--short"):
         fail("repository became dirty during B3C static checks")
@@ -254,11 +230,7 @@ def ensure_toolchain() -> str:
         fail("rustup is required for B3C runtime proof")
     probe = subprocess.run(
         [rustup, "run", RUST_TOOLCHAIN, "rustc", "--version"],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+        cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
     if probe.returncode:
         run([rustup, "toolchain", "install", RUST_TOOLCHAIN, "--profile", "minimal"])
