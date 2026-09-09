@@ -86,7 +86,9 @@ The committed B0 inventory harness uses the already-proven SBC-6A isolated envir
 
 It must:
 - require exact `paddleocr==3.7.0` and `onnxruntime==1.23.2`;
-- require cached `~/.paddlex/official_models/PP-OCRv6_tiny_det` and `_rec`;
+- resolve only the selected P1 logical models and their runtime-format cache variants (`_onnx` preferred for the frozen ONNX Runtime lane, plus exact-name and `_safetensors` fallback); 
+- derive the PaddleX cache root from the installed runtime and use only bounded local cache discovery, with no download or model shopping;
+- record the physical cache directory actually used;
 - hash every selected model file;
 - enumerate installed Python distributions and licence metadata/files;
 - instantiate P1 from explicit local model directories;
@@ -95,7 +97,15 @@ It must:
 - run one deterministic clean synthetic receipt smoke;
 - leave the repository clean.
 
-## 7. Hard stop
+## 7. Initial B0 harness failure and bounded repair
+
+The first Windows B0 run passed the repository/change-control preflight and exact runtime package-version checks, then stopped before model inventory because the harness assumed that the selected logical model names were also the physical cache directory names under `~/.paddlex/official_models`.
+
+That assumption was too narrow for an ONNX Runtime lane. PaddleX model resolution supports runtime-format suffixes including `_onnx`; the selected logical model remains `PP-OCRv6_tiny_det` / `PP-OCRv6_tiny_rec`, but the physical cached asset may be format-qualified.
+
+The repair is harness-only. It does not change the selected model, PaddleOCR version, ONNX Runtime version, quality thresholds, product code, workspace/native code, Cargo.lock, Beankeeper, facade or accounting behaviour. The V2 resolver checks only the authorised logical names and their bounded runtime-format variants, records the resolved physical path, and still requires explicit-local-model loading with socket connections denied.
+
+## 8. Hard stop
 
 Do not add a production OCR package, model asset, Tauri command, installer resource, native dependency, or UI wiring until the B0 inventory output is adjudicated and a bounded packaging/interface decision is frozen.
 
