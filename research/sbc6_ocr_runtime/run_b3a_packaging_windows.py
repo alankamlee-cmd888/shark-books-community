@@ -111,7 +111,13 @@ def copy_models(det: Path, rec: Path, package: Path) -> tuple[Path, Path]:
 def restricted_env() -> dict[str, str]:
     env = os.environ.copy()
     system_root = Path(env.get("SystemRoot", r"C:\Windows"))
-    env["PATH"] = os.pathsep.join([str(system_root / "System32"), str(system_root)])
+    system32 = system_root / "System32"
+    if not system32.is_dir():
+        fail(f"Windows System32 directory unavailable: {system32}")
+    # Deliberately exclude the Windows root itself. The standard Python launcher
+    # can live at C:\Windows\py.exe; including that directory would make `py`
+    # resolvable even though the frozen bundle does not depend on system Python.
+    env["PATH"] = str(system32)
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
     env["ORT_DISABLE_TELEMETRY"] = "1"
@@ -120,11 +126,18 @@ def restricted_env() -> dict[str, str]:
 
 
 def assert_no_python_on_restricted_path(env: dict[str, str], repo: Path) -> None:
+    system_root = Path(env.get("SystemRoot", r"C:\Windows"))
+    where = system_root / "System32" / "where.exe"
+    if not where.is_file():
+        fail(f"where.exe unavailable for restricted PATH proof: {where}")
     for name in ("python", "py"):
-        p = subprocess.run(["where.exe", name], cwd=repo, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        resolved = shutil.which(name, path=env["PATH"])
+        if resolved is not None:
+            fail(f"restricted runtime PATH unexpectedly resolves {name} via shutil.which: {resolved}")
+        p = subprocess.run([str(where), name], cwd=repo, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if p.returncode == 0:
-            fail(f"restricted runtime PATH unexpectedly resolves {name}: {p.stdout.strip()}")
-    passed("Restricted runtime PATH resolves neither python nor py")
+            fail(f"restricted runtime PATH unexpectedly resolves {name} via where.exe: {p.stdout.strip()}")
+    passed("Restricted runtime PATH resolves neither python nor py by shutil.which or where.exe")
 
 
 def tree_manifest(root: Path, output: Path) -> tuple[int, int]:
