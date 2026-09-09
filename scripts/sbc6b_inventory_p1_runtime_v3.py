@@ -10,7 +10,9 @@ but tightens the runtime assumptions discovered by Windows proof:
    directories are supplied, so the selected tiny logical model names must be
    passed explicitly together with those directories;
 3. PaddleX reads model-source flags at import time, so offline/model-source flags
-   must be set before any PaddleX import performed by cache resolution.
+   must be set before any PaddleX import performed by cache resolution;
+4. the Stage A winner actually ran with PaddleX 3.7.2, so B0 must reject drift in
+   that orchestration layer as well as PaddleOCR and ONNX Runtime.
 """
 from __future__ import annotations
 
@@ -93,6 +95,17 @@ def _result_texts(result: Any) -> list[str]:
     return [str(x).strip() for x in (rec_texts or []) if str(x).strip()]
 
 
+def _require_onnx_payload(model_name: str, model_dir: Path) -> None:
+    try:
+        onnx_files = sorted(p for p in model_dir.rglob("*.onnx") if p.is_file())
+    except OSError as exc:
+        base.fail(f"cannot inspect ONNX payload for {model_name}: {exc}")
+        return
+    if not onnx_files:
+        base.fail(f"selected ONNX cache asset contains no .onnx payload: {model_name} -> {model_dir}")
+    base.passed(f"Selected P1 cache asset contains ONNX payload: {model_name} ({len(onnx_files)} file(s))")
+
+
 def strict_local_model_smoke(models: dict[str, Path], smoke_image: Path) -> dict[str, Any]:
     started = time.perf_counter()
     with strict_deny_network():
@@ -102,6 +115,10 @@ def strict_local_model_smoke(models: dict[str, Path], smoke_image: Path) -> dict
 
         if not DISABLE_MODEL_SOURCE_CHECK:
             base.fail("PaddleX model-source check was not disabled before import")
+
+        # Require actual ONNX payloads, not merely an `_onnx` directory label.
+        _require_onnx_payload(DET_MODEL, models[DET_MODEL])
+        _require_onnx_payload(REC_MODEL, models[REC_MODEL])
 
         # Validate each cached directory against its embedded PaddleX model
         # configuration before constructing the OCR pipeline. This catches any
@@ -144,6 +161,7 @@ def strict_local_model_smoke(models: dict[str, Path], smoke_image: Path) -> dict
         "sample_text": text_parts[:8],
         "configured_detection_model": DET_MODEL,
         "configured_recognition_model": REC_MODEL,
+        "paddlex_version": base.package_version("paddlex"),
         "cache_format": "onnx",
         "model_source_check_disabled_before_paddlex_import": True,
         "network_guard": "PASS_NO_PYTHON_TCP_CONNECT_ALLOWED_DURING_CACHE_RESOLUTION_IMPORT_INIT_AND_PREDICT",
@@ -154,6 +172,11 @@ ORIGINAL_RESOLVE_MODELS = base.resolve_models
 
 
 def main() -> int:
+    base.SELECTED = {
+        "paddleocr": "3.7.0",
+        "paddlex": "3.7.2",
+        "onnxruntime": "1.23.2",
+    }
     base.OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v3"
     base.local_variants = strict_local_variants
     base.deny_network = strict_deny_network
