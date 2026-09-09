@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $VenvPython = Join-Path $env:TEMP 'sharkbooks-sbc6a-venv\Scripts\python.exe'
 $Generator = Join-Path $Repo 'research\sbc6_ocr_benchmark\generate_receipts.py'
-$Inventory = Join-Path $Repo 'scripts\sbc6b_inventory_p1_runtime.py'
+$Inventory = Join-Path $Repo 'scripts\sbc6b_inventory_p1_runtime_v3.py'
 $Validator = Join-Path $Repo 'scripts\check_sbc6b_inventory_gate.py'
 $FixtureRoot = Join-Path $env:TEMP 'sharkbooks-sbc6b-inventory-fixtures'
 $OutputRoot = 'C:\SharkBooks-SBC6B-Inventory'
@@ -58,6 +58,9 @@ try {
         Remove-Item -Force $Zip
     }
     $Files = Get-ChildItem -LiteralPath $OutputRoot -File | Where-Object { $_.FullName -ne $Zip }
+    if (-not $Files) {
+        throw 'SBC-6B inventory produced no evidence files to archive.'
+    }
     Compress-Archive -Path $Files.FullName -DestinationPath $Zip -Force
 
     Write-Host '[PASS] Repository remains clean after SBC-6B inventory proof.'
