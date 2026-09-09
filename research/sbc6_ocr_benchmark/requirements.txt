@@ -1,0 +1,6 @@
+# SBC-6A research-only benchmark environment. Not a SharkBooks product dependency set.
+paddleocr==3.7.0
+onnxruntime==1.23.2
+Pillow==12.3.0
+pytesseract==0.3.13
+psutil==7.2.2
