@@ -48,6 +48,31 @@ try {
     & $BootstrapExe @BootstrapArgs $Validator --static-only
     Assert-ExitCode 'SBC-6A static validator'
 
+    # Check the external Tesseract control before installing the heavier Python OCR stack.
+    $TesseractExe = $null
+    $TesseractCommand = Get-Command tesseract -ErrorAction SilentlyContinue
+    if ($TesseractCommand) {
+        $TesseractExe = $TesseractCommand.Source
+    }
+    elseif (Test-Path 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
+        $TesseractExe = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        $env:PATH = "C:\Program Files\Tesseract-OCR;$env:PATH"
+    }
+
+    if (($Lane -eq 'ALL' -or $Lane -eq 'T0') -and -not $TesseractExe) {
+        Write-Host '[BLOCKED] Tesseract 5.5.3 baseline is not installed.'
+        Write-Host 'Install it, then rerun this same command:'
+        Write-Host '  winget install --id tesseract-ocr.tesseract --exact --version 5.5.3'
+        throw 'Tesseract baseline missing; no OCR dependency installation or benchmark was run.'
+    }
+    if ($TesseractExe) {
+        $VersionLine = (& $TesseractExe --version | Select-Object -First 1)
+        if ($VersionLine -notmatch '5\.5\.3') {
+            throw "Tesseract 5.5.3 required for frozen T0 lane; found: $VersionLine"
+        }
+        Write-Host "[PASS] Tesseract baseline: $VersionLine"
+    }
+
     if (-not $OfflineProof) {
         if (Test-Path $Venv) {
             Remove-Item -Recurse -Force $Venv
@@ -63,30 +88,6 @@ try {
 
     & $VenvPython -c "import sys; assert (3,10) <= sys.version_info[:2] <= (3,13), sys.version"
     Assert-ExitCode 'Python version check'
-
-    $TesseractExe = $null
-    $TesseractCommand = Get-Command tesseract -ErrorAction SilentlyContinue
-    if ($TesseractCommand) {
-        $TesseractExe = $TesseractCommand.Source
-    }
-    elseif (Test-Path 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
-        $TesseractExe = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
-        $env:PATH = "C:\Program Files\Tesseract-OCR;$env:PATH"
-    }
-
-    if (($Lane -eq 'ALL' -or $Lane -eq 'T0') -and -not $TesseractExe) {
-        Write-Host '[BLOCKED] Tesseract 5.5.3 baseline is not installed.'
-        Write-Host 'Install it, then rerun this same command:'
-        Write-Host '  winget install --id tesseract-ocr.tesseract --exact --version 5.5.3'
-        throw 'Tesseract baseline missing; no OCR benchmark was run.'
-    }
-    if ($TesseractExe) {
-        $VersionLine = (& $TesseractExe --version | Select-Object -First 1)
-        if ($VersionLine -notmatch '5\.5\.3') {
-            throw "Tesseract 5.5.3 required for frozen T0 lane; found: $VersionLine"
-        }
-        Write-Host "[PASS] Tesseract baseline: $VersionLine"
-    }
 
     if (Test-Path $FixtureRoot) {
         Remove-Item -Recurse -Force $FixtureRoot
