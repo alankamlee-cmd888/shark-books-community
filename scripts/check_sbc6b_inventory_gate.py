@@ -114,6 +114,8 @@ def main() -> int:
         'return (f"{name}_onnx",)',
         "socket.socket.connect_ex = blocked_connect_ex",
         "def strict_resolve_models()",
+        "def _require_onnx_payload(",
+        'model_dir.rglob("*.onnx")',
         "resolve_model_name(model_name=DET_MODEL",
         "resolve_model_name(model_name=REC_MODEL",
         "text_detection_model_name=DET_MODEL",
@@ -121,13 +123,14 @@ def main() -> int:
         "text_recognition_model_name=REC_MODEL",
         "text_recognition_model_dir=str(models[REC_MODEL])",
         'engine="onnxruntime"',
+        '"paddlex": "3.7.2"',
         'base.OUTPUT_SCHEMA = "sbc6b.p1_runtime_inventory.v3"',
         "base.resolve_models = strict_resolve_models",
         "base.local_model_smoke = strict_local_model_smoke",
     ):
         if anchor not in strict:
             fail(f"strict V3 inventory wrapper missing required anchor: {anchor}")
-    passed("B0 inventory code binds exact tiny ONNX names+directories, early offline flags, strict cache-resolution guard and evidence outputs")
+    passed("B0 inventory code binds exact tiny ONNX names+directories, PaddleX pin, real ONNX payload checks, early offline flags, strict cache-resolution guard and evidence outputs")
 
     print("[PASS] SBC-6B B0 runtime inventory gate preflight complete")
     return 0
