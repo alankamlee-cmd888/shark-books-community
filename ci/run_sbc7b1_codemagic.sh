@@ -145,16 +145,21 @@ run_log product_core_tests cargo test --manifest-path "$REPO_ROOT/product/shark-
 pass "Product-core regressions pass on Mac"
 run_log foundation_tests cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --locked --jobs 1 || stop "Foundation regressions pass on Mac" "FOUNDATION_REGRESSION_FAIL" 51
 pass "Foundation regressions pass on Mac"
+
+# Tauri's generate_context! macro validates the configured icon while compiling
+# the library test target on macOS, so the temporary RGBA conversion must happen
+# before owner_app::tests as well as before the Apple target builds. The original
+# source icon is restored by finish() on every exit path.
+ICON="$WORKSPACE/shark-tauri-spike/icons/icon.png"
+ICON_BACKUP="$RESULT_DIR/icon.original.png"
+cp "$ICON" "$ICON_BACKUP" || stop "Source icon backed up before Mac Tauri tests" "ICON_BACKUP_FAIL" 53
+pass "Source icon backed up before Mac Tauri tests"
+run_log rgba_icon python3 "$REPO_ROOT/ci/prepare_rgba_png.py" "$ICON" || stop "Temporary Apple RGBA conversion succeeds before Mac Tauri tests" "ICON_RGBA_FAIL" 54
+pass "Temporary Apple RGBA conversion succeeds before Mac Tauri tests"
 run_log owner_bridge_tests cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --locked --jobs 1 owner_app::tests -- --test-threads=1 || stop "Owner application bridge tests pass on Mac" "OWNER_BRIDGE_REGRESSION_FAIL" 52
 pass "Owner application bridge tests pass on Mac"
 
 PHASE="7B1_4_APPLE_COMPILE"
-ICON="$WORKSPACE/shark-tauri-spike/icons/icon.png"
-ICON_BACKUP="$RESULT_DIR/icon.original.png"
-cp "$ICON" "$ICON_BACKUP" || stop "Source icon backed up" "ICON_BACKUP_FAIL" 60
-pass "Source icon backed up"
-run_log rgba_icon python3 "$REPO_ROOT/ci/prepare_rgba_png.py" "$ICON" || stop "Temporary Apple RGBA conversion succeeds" "ICON_RGBA_FAIL" 61
-pass "Temporary Apple RGBA conversion succeeds"
 run_log ios_tauri cargo build --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --target aarch64-apple-ios --locked --jobs 1 || stop "7B1 Tauri shell compiles for physical Apple target" "APPLE_TAURI_COMPILE_FAIL" 62
 pass "7B1 Tauri shell compiles for physical Apple target"
 run_log ios_sim_tauri cargo build --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --target aarch64-apple-ios-sim --locked --jobs 1 || stop "7B1 Tauri shell compiles for Apple Simulator target" "APPLE_SIM_TAURI_COMPILE_FAIL" 63
