@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 BASE = "70777e04ccfc1e427c60e18269b8a0738cc8610c"
 RUST_TOOLCHAIN = "1.98.1"
@@ -200,7 +201,7 @@ def static_gate(repo: Path) -> dict[str, object]:
 def runtime_gate(repo: Path) -> None:
     env = os.environ.copy()
     env.setdefault("SHARK_SBC1D_PROOF_KEY", "SBC7B1-Proof-Key-Only-Do-Not-Ship")
-    proof_root = repo.parent / "sbc7b1-proof-books"
+    proof_root = Path(tempfile.gettempdir()) / "sharkbooks-sbc7b1-proof-books"
     proof_root.mkdir(parents=True, exist_ok=True)
     env["SHARK_SBC1D_BOOKS_DIR"] = str(proof_root)
     env["RUST_TEST_THREADS"] = "1"
