@@ -14,6 +14,10 @@ LOG_DIR="$RESULT_DIR/logs"
 RESULT_ZIP="$ARTIFACTS/SBC7B1_MAC_CODEMAGIC_RESULT_$TS.zip"
 SUMMARY_TXT="$ARTIFACTS/SBC7B1_MAC_SUMMARY.txt"
 SUMMARY_JSON="$ARTIFACTS/SBC7B1_MAC_SUMMARY.json"
+CARGO_TARGET_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B1-CargoTarget"
+export CARGO_TARGET_DIR
+rm -rf "$CARGO_TARGET_DIR"
+mkdir -p "$CARGO_TARGET_DIR"
 mkdir -p "$LOG_DIR"
 
 ASSERT_N=0
@@ -89,6 +93,7 @@ EOF
   if [ ! -f "$RESULT_ZIP" ]; then
     (cd "$ARTIFACTS" && zip -qry "$RESULT_ZIP" "$(basename "$RESULT_DIR")") || true
   fi
+  rm -rf "$CARGO_TARGET_DIR"
   exit "$rc"
 }
 trap finish EXIT
@@ -140,6 +145,8 @@ run_log product_core_tests cargo test --manifest-path "$REPO_ROOT/product/shark-
 pass "Product-core regressions pass on Mac"
 run_log foundation_tests cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --locked --jobs 1 || stop "Foundation regressions pass on Mac" "FOUNDATION_REGRESSION_FAIL" 51
 pass "Foundation regressions pass on Mac"
+run_log owner_bridge_tests cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --locked --jobs 1 owner_app::tests -- --test-threads=1 || stop "Owner application bridge tests pass on Mac" "OWNER_BRIDGE_REGRESSION_FAIL" 52
+pass "Owner application bridge tests pass on Mac"
 
 PHASE="7B1_4_APPLE_COMPILE"
 ICON="$WORKSPACE/shark-tauri-spike/icons/icon.png"
