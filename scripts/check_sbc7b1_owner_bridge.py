@@ -135,7 +135,7 @@ def static_gate(repo: Path) -> dict[str, object]:
         "requires_confirmation: true",
         "core::plan_income",
         "core::plan_expense",
-        "books.post(&foundation_request)",
+        ".post(&foundation_request)",
         "owner_home_status",
         "owner_money_in_preview",
         "owner_money_in_save",
