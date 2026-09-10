@@ -19,6 +19,11 @@ fn main() {
                 "books_verify",
                 "books_trial_balance",
                 "ocr_extract_receipt",
+                "owner_home_status",
+                "owner_money_in_preview",
+                "owner_money_in_save",
+                "owner_money_out_preview",
+                "owner_money_out_save",
             ]),
         ),
     )
