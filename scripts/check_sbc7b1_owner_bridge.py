@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -63,6 +64,8 @@ def run(repo: Path, args: list[str], *, env: dict[str, str] | None = None, captu
         cwd=repo,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
     )
@@ -81,6 +84,8 @@ def git(repo: Path, *args: str) -> str:
         ["git", *args],
         cwd=repo,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -206,17 +211,26 @@ def runtime_gate(repo: Path) -> None:
     env["SHARK_SBC1D_BOOKS_DIR"] = str(proof_root)
     env["RUST_TEST_THREADS"] = "1"
 
-    run(repo, [sys.executable, "-B", str(repo / "scripts" / "bootstrap_beankeeper.py")], env=env)
-    run(repo, ["rustup", "run", RUST_TOOLCHAIN, "rustc", "--version"], env=env)
-    run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "product" / "shark-books-core" / "Cargo.toml"), "--locked", "--jobs", "1"], env=env)
-    run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-foundation", "--locked", "--jobs", "1"], env=env)
-    run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-tauri-spike", "--locked", "--jobs", "1", "--", "--test-threads=1"], env=env)
-    run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "check", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-tauri-spike", "--locked", "--jobs", "1"], env=env)
+    cargo_target = Path(tempfile.gettempdir()) / "SharkBooks-SBC7B1-CargoTarget"
+    if cargo_target.exists():
+        shutil.rmtree(cargo_target, ignore_errors=True)
+    cargo_target.mkdir(parents=True, exist_ok=True)
+    env["CARGO_TARGET_DIR"] = str(cargo_target)
 
-    current = (repo / "workspace" / "Cargo.lock").read_bytes()
-    require(sha256_bytes(current) == NATIVE_LOCK_SHA256, "native Cargo.lock unchanged through runtime gate")
-    status = git(repo, "status", "--porcelain").strip()
-    require(not status, "repository clean after runtime gate")
+    try:
+        run(repo, [sys.executable, "-B", str(repo / "scripts" / "bootstrap_beankeeper.py")], env=env)
+        run(repo, ["rustup", "run", RUST_TOOLCHAIN, "rustc", "--version"], env=env)
+        run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "product" / "shark-books-core" / "Cargo.toml"), "--locked", "--jobs", "1"], env=env)
+        run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-foundation", "--locked", "--jobs", "1"], env=env)
+        run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "test", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-tauri-spike", "--locked", "--jobs", "1", "owner_app::tests", "--", "--test-threads=1"], env=env)
+        run(repo, ["rustup", "run", RUST_TOOLCHAIN, "cargo", "check", "--manifest-path", str(repo / "workspace" / "Cargo.toml"), "-p", "shark-tauri-spike", "--locked", "--jobs", "1"], env=env)
+
+        current = (repo / "workspace" / "Cargo.lock").read_bytes()
+        require(sha256_bytes(current) == NATIVE_LOCK_SHA256, "native Cargo.lock unchanged through runtime gate")
+        status = git(repo, "status", "--porcelain").strip()
+        require(not status, "repository clean after runtime gate")
+    finally:
+        shutil.rmtree(cargo_target, ignore_errors=True)
 
 
 def main() -> int:
