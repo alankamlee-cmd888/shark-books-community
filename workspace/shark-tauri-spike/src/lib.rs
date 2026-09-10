@@ -6,6 +6,7 @@
 
 mod ocr_native;
 mod owner_app;
+mod owner_bank_review;
 
 use std::fs;
 use std::path::PathBuf;
@@ -244,7 +245,11 @@ pub fn run() {
             owner_app::owner_money_in_preview,
             owner_app::owner_money_in_save,
             owner_app::owner_money_out_preview,
-            owner_app::owner_money_out_save
+            owner_app::owner_money_out_save,
+            owner_bank_review::owner_bank_import_preview_csv,
+            owner_bank_review::owner_bank_import_preview_ofx_qfx,
+            owner_bank_review::owner_bank_match_review,
+            owner_bank_review::owner_bank_reconcile_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shark Books Community bounded native shell");
@@ -383,6 +388,10 @@ mod tests {
             "owner_money_in_save",
             "owner_money_out_preview",
             "owner_money_out_save",
+            "owner_bank_import_preview_csv",
+            "owner_bank_import_preview_ofx_qfx",
+            "owner_bank_match_review",
+            "owner_bank_reconcile_preview",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -440,6 +449,10 @@ mod tests {
             "owner_money_in_save",
             "owner_money_out_preview",
             "owner_money_out_save",
+            "owner_bank_import_preview_csv",
+            "owner_bank_import_preview_ofx_qfx",
+            "owner_bank_match_review",
+            "owner_bank_reconcile_preview",
         ] {
             assert!(
                 BUILD_RS.contains(command),
