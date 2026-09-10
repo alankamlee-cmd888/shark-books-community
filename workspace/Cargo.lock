@@ -3490,6 +3490,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "shark-books-core"
+version = "0.0.1"
+
+[[package]]
 name = "shark-foundation"
 version = "0.0.1"
 dependencies = [
@@ -3508,6 +3512,7 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+ "shark-books-core",
  "shark-foundation",
  "tauri",
  "tauri-build",

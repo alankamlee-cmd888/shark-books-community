@@ -5,6 +5,7 @@
 //! explicitly not the release secure-storage implementation.
 
 mod ocr_native;
+mod owner_app;
 
 use std::fs;
 use std::path::PathBuf;
@@ -238,7 +239,12 @@ pub fn run() {
             books_open,
             books_verify,
             books_trial_balance,
-            ocr_native::ocr_extract_receipt
+            ocr_native::ocr_extract_receipt,
+            owner_app::owner_home_status,
+            owner_app::owner_money_in_preview,
+            owner_app::owner_money_in_save,
+            owner_app::owner_money_out_preview,
+            owner_app::owner_money_out_save
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shark Books Community bounded native shell");
@@ -372,6 +378,11 @@ mod tests {
             "dbPath",
             "databasePath",
             "ocr_extract_receipt",
+            "owner_home_status",
+            "owner_money_in_preview",
+            "owner_money_in_save",
+            "owner_money_out_preview",
+            "owner_money_out_save",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -424,6 +435,11 @@ mod tests {
             "books_verify",
             "books_trial_balance",
             "ocr_extract_receipt",
+            "owner_home_status",
+            "owner_money_in_preview",
+            "owner_money_in_save",
+            "owner_money_out_preview",
+            "owner_money_out_save",
         ] {
             assert!(
                 BUILD_RS.contains(command),
