@@ -38,8 +38,17 @@ $Stderr = Join-Path $OutRoot 'VALIDATOR.stderr.txt'
 Write-Host "[INFO] SBC-6C proof repository: $Repo"
 Write-Host "[INFO] Running bounded receipt-to-bank suggestion gate"
 
-& $Python @PythonPrefix -B $Validator 1> $Stdout 2> $Stderr
-$ValidatorExit = $LASTEXITCODE
+$ValidatorArgs = @($PythonPrefix + @('-B', $Validator))
+$ValidatorProcess = Start-Process `
+    -FilePath $Python `
+    -ArgumentList $ValidatorArgs `
+    -WorkingDirectory $Repo `
+    -RedirectStandardOutput $Stdout `
+    -RedirectStandardError $Stderr `
+    -NoNewWindow `
+    -Wait `
+    -PassThru
+$ValidatorExit = $ValidatorProcess.ExitCode
 
 if (Test-Path $Stdout) {
     Get-Content $Stdout | ForEach-Object { Write-Host $_ }
