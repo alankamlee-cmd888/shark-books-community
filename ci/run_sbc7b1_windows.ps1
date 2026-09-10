@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Validator = Join-Path $Repo 'scripts\check_sbc7b1_owner_bridge.py'
 $OutRoot = Join-Path $env:TEMP 'SharkBooks-SBC7B1'
+$CargoTarget = Join-Path $env:TEMP 'SharkBooks-SBC7B1-CargoTarget'
 $ZipName = 'SBC7B1_OWNER_APPLICATION_BRIDGE.zip'
 $Downloads = Join-Path $env:USERPROFILE 'Downloads'
 $ZipPath = Join-Path $Downloads $ZipName
@@ -13,6 +14,7 @@ if (Test-Path $OutRoot) { Remove-Item $OutRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $OutRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $Downloads | Out-Null
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+$env:CARGO_TARGET_DIR = $CargoTarget
 
 $Python = $null
 $PythonPrefix = @()
@@ -33,6 +35,7 @@ $Stdout = Join-Path $OutRoot 'VALIDATOR.stdout.txt'
 $Stderr = Join-Path $OutRoot 'VALIDATOR.stderr.txt'
 
 Write-Host "[INFO] SBC-7B1 proof repository: $Repo"
+Write-Host "[INFO] Cargo target isolated outside repository: $CargoTarget"
 Write-Host '[INFO] Running bounded owner application bridge gate'
 
 $ValidatorArgs = @($PythonPrefix + @('-B', $Validator))
