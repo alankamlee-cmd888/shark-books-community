@@ -4,6 +4,8 @@
 //! A proof-only Rust environment provider is used at this engineering gate; it is
 //! explicitly not the release secure-storage implementation.
 
+mod ocr_native;
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -228,16 +230,18 @@ fn books_trial_balance(request: OpenBooksRequest) -> Result<TrialBalance, String
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(ocr_native::NativeOcrRegistry::default())
         .invoke_handler(tauri::generate_handler![
             foundation_health,
             production_encryption_required,
             books_create,
             books_open,
             books_verify,
-            books_trial_balance
+            books_trial_balance,
+            ocr_native::ocr_extract_receipt
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Shark Books Community SBC-1D shell");
+        .expect("error while running Shark Books Community bounded native shell");
 }
 
 #[cfg(test)]
@@ -367,12 +371,17 @@ mod tests {
             "passphrase",
             "dbPath",
             "databasePath",
+            "ocr_extract_receipt",
+            "inputPath",
+            "modelPath",
+            "executablePath",
+            "shellCommand",
             "http://",
             "https://",
         ] {
             assert!(
                 !APP.contains(forbidden) && !INDEX.contains(forbidden),
-                "frontend contains forbidden surface: {forbidden}"
+                "frontend contains forbidden/premature surface: {forbidden}"
             );
         }
     }
@@ -398,7 +407,13 @@ mod tests {
         assert_eq!(capability["permissions"][0], "shark-shell");
         assert!(!CAPABILITY.contains("core:default"));
         assert_eq!(config["app"]["security"]["capabilities"][0], "windows-main");
-        assert_eq!(config["app"]["security"]["capabilities"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            config["app"]["security"]["capabilities"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
 
         assert!(BUILD_RS.contains("AppManifest::new().commands"));
         for command in [
@@ -408,19 +423,16 @@ mod tests {
             "books_open",
             "books_verify",
             "books_trial_balance",
+            "ocr_extract_receipt",
         ] {
-            assert!(BUILD_RS.contains(command), "build manifest missing command {command}");
-        }
-
-        for command in [
-            "foundation_health",
-            "production_encryption_required",
-            "books_create",
-            "books_open",
-            "books_verify",
-            "books_trial_balance",
-        ] {
-            assert!(PERMISSION.contains(command));
+            assert!(
+                BUILD_RS.contains(command),
+                "build manifest missing command {command}"
+            );
+            assert!(
+                PERMISSION.contains(command),
+                "permission missing command {command}"
+            );
         }
     }
 }
