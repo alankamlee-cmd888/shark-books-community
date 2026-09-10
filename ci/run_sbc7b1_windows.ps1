@@ -2,14 +2,17 @@ $ErrorActionPreference = 'Stop'
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Validator = Join-Path $Repo 'scripts\check_sbc7b1_owner_bridge.py'
-$OutRoot = 'C:\SharkBooks-SBC7B1'
+$OutRoot = Join-Path $env:TEMP 'SharkBooks-SBC7B1'
 $ZipName = 'SBC7B1_OWNER_APPLICATION_BRIDGE.zip'
-$ZipPath = Join-Path $OutRoot $ZipName
-$TmpZip = Join-Path $env:TEMP $ZipName
+$Downloads = Join-Path $env:USERPROFILE 'Downloads'
+$ZipPath = Join-Path $Downloads $ZipName
+$TmpZip = Join-Path $env:TEMP ('tmp_' + $ZipName)
 
 if ($env:OS -ne 'Windows_NT') { throw 'SBC-7B1 proof must run on Windows.' }
 if (Test-Path $OutRoot) { Remove-Item $OutRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $OutRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $Downloads | Out-Null
+if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
 $Python = $null
 $PythonPrefix = @()
