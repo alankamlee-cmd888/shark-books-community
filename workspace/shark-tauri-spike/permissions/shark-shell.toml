@@ -14,4 +14,8 @@ commands.allow = [
   "owner_money_in_save",
   "owner_money_out_preview",
   "owner_money_out_save",
+  "owner_bank_import_preview_csv",
+  "owner_bank_import_preview_ofx_qfx",
+  "owner_bank_match_review",
+  "owner_bank_reconcile_preview",
 ]
