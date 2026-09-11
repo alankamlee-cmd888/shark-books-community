@@ -1,0 +1,41 @@
+name: SBC-7B1 Bank Mutation Dev Check
+
+on:
+  push:
+    branches:
+      - sbc7b1-bank-mutation-persistence-20260911
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.98.1"
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "1"
+
+jobs:
+  windows-dev-check:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout branch without marketplace actions
+        shell: pwsh
+        run: |
+          git clone --branch "$env:GITHUB_REF_NAME" --single-branch "https://github.com/$env:GITHUB_REPOSITORY.git" .
+      - name: Select Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup default $env:RUST_TOOLCHAIN
+      - name: Materialise exact Beankeeper pin
+        shell: pwsh
+        run: python -B scripts/bootstrap_beankeeper.py
+      - name: Foundation tests
+        shell: pwsh
+        run: cargo test --manifest-path workspace/Cargo.toml -p shark-foundation --locked --jobs 1
+      - name: Bank mutation tests
+        shell: pwsh
+        run: cargo test --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1 owner_bank_mutation::tests -- --test-threads=1
+      - name: Locked Tauri check
+        shell: pwsh
+        run: cargo check --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1
