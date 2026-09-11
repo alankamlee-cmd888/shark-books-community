@@ -743,7 +743,7 @@ pub(crate) struct OwnerBankMatchReceipt {
     score: u16,
     reasons: Vec<String>,
     already_confirmed: bool,
-    clearance_state: &'static str,
+    clearance_state: String,
 }
 
 #[tauri::command]
@@ -788,8 +788,7 @@ pub(crate) fn owner_bank_match_confirm(
             already_confirmed: true,
             clearance_state: persisted
                 .clearance_state
-                .as_deref()
-                .unwrap_or("cleared"),
+                .unwrap_or_else(|| "cleared".to_string()),
         });
     }
 
@@ -883,7 +882,7 @@ pub(crate) fn owner_bank_match_confirm(
         score: view.score,
         reasons: view.reasons,
         already_confirmed,
-        clearance_state: "cleared",
+        clearance_state: "cleared".to_string(),
     })
 }
 
