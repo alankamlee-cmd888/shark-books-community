@@ -36,6 +36,7 @@ fn activity(
     strong_identity_key: Option<&str>,
     amount: i64,
 ) -> BankActivityWrite {
+    let raw_record_sha256 = hash(raw_marker);
     BankActivityWrite {
         source_account_id: "bank-main".to_string(),
         institution_account_id: None,
@@ -50,11 +51,15 @@ fn activity(
         payee: Some("Example supplier".to_string()),
         reference: None,
         external_transaction_id: strong_identity_key.map(|_| format!("T-{locator}")),
-        raw_record_sha256: hash(raw_marker),
+        raw_record_sha256: raw_record_sha256.clone(),
         strong_identity_key: strong_identity_key.map(str::to_string),
         provenance_kind: "csv".to_string(),
         provenance_source_reference: Some(locator.to_string()),
-        provenance_fingerprint: Some(hash(raw_marker)),
+        provenance_fingerprint: Some(
+            strong_identity_key
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("sha256:{raw_record_sha256}")),
+        ),
         provenance_label: Some("Test bank".to_string()),
     }
 }
@@ -65,8 +70,7 @@ fn post_bank_transaction(books: &Books, reference: &str, amount: i64) -> (i64, i
     } else {
         (Direction::Credit, Direction::Debit)
     };
-    let absolute = amount.unsigned_abs();
-    let absolute = i64::try_from(absolute).expect("test amount in range");
+    let absolute = i64::try_from(amount.unsigned_abs()).expect("test amount in range");
     let outcome = books
         .post(&PostTransactionRequest {
             description: "Matched bank transaction".to_string(),
@@ -149,7 +153,7 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
     let (books, path) = test_books("activity-atomic");
     let before_transactions = books.count_transactions().expect("before count");
     let strong = "csv:GBP:bank-main:T-row-1";
-    let first = activity("row-1", 'b', Some(strong), -2_500);
+    let first = activity("csv:row:1", 'b', Some(strong), -2_500);
     let outcomes = books
         .persist_bank_activity_batch(std::slice::from_ref(&first))
         .expect("initial import");
@@ -166,7 +170,7 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
         .expect("strong duplicate");
     assert_eq!(duplicate[0].kind, BankActivityPersistKind::StrongDuplicate);
 
-    let file_exact = activity("row-file", 'c', None, -1_000);
+    let file_exact = activity("csv:row:2", 'c', None, -1_000);
     let created = books
         .persist_bank_activity_batch(std::slice::from_ref(&file_exact))
         .expect("file exact seed");
@@ -183,8 +187,8 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
         .list_bank_activity(500, 0)
         .expect("activity list")
         .len();
-    let new_row = activity("row-atomic-new", 'd', None, 3_000);
-    let conflict = activity("row-conflict", 'e', Some(strong), -2_600);
+    let new_row = activity("csv:row:3", 'd', None, 3_000);
+    let conflict = activity("csv:row:4", 'e', Some(strong), -2_600);
     assert!(
         books
             .persist_bank_activity_batch(&[new_row, conflict])
@@ -198,7 +202,7 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
     assert!(
         after_failed_batch
             .iter()
-            .all(|row| row.activity.source_locator != "row-atomic-new"),
+            .all(|row| row.activity.source_locator != "csv:row:3"),
         "earlier rows from a failed batch must roll back"
     );
 
@@ -207,12 +211,30 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
 }
 
 #[test]
+fn noncanonical_bank_provenance_fails_before_persistence() {
+    let (books, path) = test_books("provenance");
+    let mut invalid = activity(
+        "csv:row:1",
+        '4',
+        Some("csv:GBP:bank-main:T-csv:row:1"),
+        -500,
+    );
+    invalid.provenance_fingerprint = Some("sha256:wrong".to_string());
+    assert!(books
+        .persist_bank_activity_batch(std::slice::from_ref(&invalid))
+        .is_err());
+    assert!(books.list_bank_activity(500, 0).unwrap().is_empty());
+    drop(books);
+    remove_sqlite_artifacts(&path);
+}
+
+#[test]
 fn match_confirmation_is_atomic_audited_forward_only_and_idempotent() {
     let (books, path) = test_books("match");
     let source = activity(
-        "match-row",
+        "csv:row:5",
         'f',
-        Some("csv:GBP:bank-main:T-match-row"),
+        Some("csv:GBP:bank-main:T-csv:row:5"),
         -2_500,
     );
     let persisted = books
@@ -251,9 +273,9 @@ fn match_confirmation_is_atomic_audited_forward_only_and_idempotent() {
     ));
 
     let other_activity = activity(
-        "other-match-row",
+        "csv:row:6",
         '1',
-        Some("csv:GBP:bank-main:T-other-match-row"),
+        Some("csv:GBP:bank-main:T-csv:row:6"),
         -2_500,
     );
     let other_id = books
@@ -282,9 +304,9 @@ fn match_confirmation_is_atomic_audited_forward_only_and_idempotent() {
 fn reconciliation_finalisation_is_exact_zero_audited_and_idempotent() {
     let (books, path) = test_books("reconcile");
     let source = activity(
-        "reconcile-row",
+        "csv:row:7",
         '2',
-        Some("csv:GBP:bank-main:T-reconcile-row"),
+        Some("csv:GBP:bank-main:T-csv:row:7"),
         -2_500,
     );
     let activity_id = books
@@ -353,9 +375,9 @@ fn reconciliation_finalisation_is_exact_zero_audited_and_idempotent() {
 fn failed_reconciliation_leaves_cleared_state_and_no_header() {
     let (books, path) = test_books("reconcile-fail");
     let source = activity(
-        "reconcile-fail-row",
+        "csv:row:8",
         '3',
-        Some("csv:GBP:bank-main:T-reconcile-fail-row"),
+        Some("csv:GBP:bank-main:T-csv:row:8"),
         1_000,
     );
     let activity_id = books
