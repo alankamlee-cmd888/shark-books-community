@@ -152,7 +152,7 @@ fn application_schema_v2_is_separate_from_beankeeper_schema_8() {
 fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
     let (books, path) = test_books("activity-atomic");
     let before_transactions = books.count_transactions().expect("before count");
-    let strong = "csv:GBP:bank-main:T-row-1";
+    let strong = "csv:GBP:bank-main:T-csv:row:1";
     let first = activity("csv:row:1", 'b', Some(strong), -2_500);
     let outcomes = books
         .persist_bank_activity_batch(std::slice::from_ref(&first))
