@@ -15,9 +15,12 @@ RESULT_ZIP="$ARTIFACTS/SBC7B1_BANK_MUTATION_MAC_CODEMAGIC_RESULT_$TS.zip"
 SUMMARY_TXT="$ARTIFACTS/SBC7B1_BANK_MUTATION_MAC_SUMMARY.txt"
 SUMMARY_JSON="$ARTIFACTS/SBC7B1_BANK_MUTATION_MAC_SUMMARY.json"
 CARGO_TARGET_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B1-BankMutation-CargoTarget"
+PROOF_BOOKS_DIR="${TMPDIR:-/tmp}/sharkbooks-sbc7b1-bank-mutation-proof-books"
 export CARGO_TARGET_DIR
-rm -rf "$CARGO_TARGET_DIR"
-mkdir -p "$CARGO_TARGET_DIR" "$LOG_DIR"
+export SHARK_SBC1D_BOOKS_DIR="$PROOF_BOOKS_DIR"
+export SHARK_SBC1D_PROOF_KEY="${SHARK_SBC1D_PROOF_KEY:-SBC7B1-Bank-Mutation-Proof-Key-Only-Do-Not-Ship}"
+rm -rf "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR"
+mkdir -p "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR" "$LOG_DIR"
 
 ASSERT_N=0
 FAIL_N=0
@@ -92,7 +95,7 @@ EOF
   if [ ! -f "$RESULT_ZIP" ]; then
     (cd "$ARTIFACTS" && zip -qry "$RESULT_ZIP" "$(basename "$RESULT_DIR")") || true
   fi
-  rm -rf "$CARGO_TARGET_DIR"
+  rm -rf "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR"
   exit "$rc"
 }
 trap finish EXIT
