@@ -1,19 +1,17 @@
-//! SBC-7B1 Slice 2B Shark-owned bank activity persistence.
+//! SBC-7B1 Slice 2B Shark-owned bank application persistence.
 //!
-//! This module owns only application metadata inside the encrypted books
-//! database. It does not expose the raw connection, SQL types or Beankeeper
-//! objects outside the foundation crate. Imported bank activity is deliberately
-//! separate from accounting transactions until an owner-confirmed accounting
-//! action exists.
+//! These types and methods own only Shark application metadata inside the same
+//! encrypted books database. Raw SQLite/Beankeeper objects never cross the
+//! Shark foundation boundary. Imported bank activity remains separate from
+//! accounting transactions until an explicit owner-confirmed accounting action.
 
 use super::*;
-use std::collections::HashSet;
 
-pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = SHARK_APPLICATION_SCHEMA_VERSION;
-const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
-const MAX_ACTIVITY_BATCH: usize = 10_000;
-const MAX_ACTIVITY_PAGE: i64 = 500;
-const MAX_RECONCILIATION_ENTRIES: usize = 1_000;
+pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 2;
+pub(super) const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
+pub(super) const MAX_ACTIVITY_BATCH: usize = 10_000;
+pub(super) const MAX_ACTIVITY_PAGE: i64 = 500;
+pub(super) const MAX_RECONCILIATION_ENTRIES: usize = 1_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BankActivityWrite {
@@ -68,6 +66,16 @@ pub struct BankActivityView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BankMatchWrite {
+    pub bank_activity_id: i64,
+    pub transaction_id: i64,
+    pub entry_id: i64,
+    pub match_level: String,
+    pub score: u16,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BankMatchView {
     pub bank_activity_id: i64,
     pub transaction_id: i64,
@@ -113,12 +121,53 @@ pub struct BankReconciliationView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BankReconciliationRecord {
+    pub reconciliation: BankReconciliationView,
+    pub entries: Vec<BankReconciliationEntryWrite>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BankReconciliationPersistOutcome {
     Finalized(BankReconciliationView),
     AlreadyFinalized(BankReconciliationView),
 }
 
 pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
+    if SHARK_APPLICATION_SCHEMA_VERSION != BANK_APPLICATION_SCHEMA_VERSION {
+        return Err(FoundationError::new(
+            FoundationErrorCode::Internal,
+            "Shark application schema constants are inconsistent",
+        ));
+    }
+
+    let meta_exists: i64 = db
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'shark_application_meta'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(sqlite_error)?;
+    if meta_exists == 1 {
+        let observed: i64 = db
+            .conn()
+            .query_row(
+                "SELECT schema_version FROM shark_application_meta WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_error)?;
+        if observed > i64::from(BANK_APPLICATION_SCHEMA_VERSION) {
+            return Err(FoundationError::new(
+                FoundationErrorCode::Unsupported,
+                format!(
+                    "Shark application schema version {observed} is newer than supported version {}",
+                    BANK_APPLICATION_SCHEMA_VERSION
+                ),
+            ));
+        }
+    }
+
     db.conn()
         .execute_batch("SAVEPOINT shark_application_schema_v2")
         .map_err(sqlite_error)?;
@@ -155,14 +204,16 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
             bank_activity_id INTEGER NOT NULL,
             transaction_id INTEGER NOT NULL,
             entry_id INTEGER NOT NULL,
-            match_level TEXT NOT NULL,
-            score INTEGER NOT NULL,
+            match_level TEXT NOT NULL CHECK(match_level IN ('possible','likely','exact')),
+            score INTEGER NOT NULL CHECK(score >= 0 AND score <= 65535),
             reasons_json TEXT NOT NULL,
             confirmed_by TEXT NOT NULL,
             confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(company_slug, bank_activity_id),
             UNIQUE(company_slug, transaction_id, entry_id),
-            FOREIGN KEY(bank_activity_id) REFERENCES shark_bank_activity(id) ON DELETE RESTRICT
+            FOREIGN KEY(bank_activity_id) REFERENCES shark_bank_activity(id) ON DELETE RESTRICT,
+            FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+            FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE RESTRICT
         );
         CREATE TABLE IF NOT EXISTS shark_bank_reconciliation (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,13 +228,17 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
         );
         CREATE TABLE IF NOT EXISTS shark_bank_reconciliation_entry (
             reconciliation_id INTEGER NOT NULL,
+            company_slug TEXT NOT NULL,
             bank_activity_id INTEGER NOT NULL,
             transaction_id INTEGER NOT NULL,
             entry_id INTEGER NOT NULL,
             signed_amount_minor INTEGER NOT NULL CHECK(signed_amount_minor <> 0),
             PRIMARY KEY(reconciliation_id, entry_id),
+            UNIQUE(company_slug, entry_id),
             FOREIGN KEY(reconciliation_id) REFERENCES shark_bank_reconciliation(id) ON DELETE RESTRICT,
-            FOREIGN KEY(bank_activity_id) REFERENCES shark_bank_activity(id) ON DELETE RESTRICT
+            FOREIGN KEY(bank_activity_id) REFERENCES shark_bank_activity(id) ON DELETE RESTRICT,
+            FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+            FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE RESTRICT
         );
         INSERT INTO shark_application_meta(id, schema_version)
             VALUES(1, 2)
@@ -221,15 +276,44 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     Ok(())
 }
 
-fn sqlite_error<E: fmt::Display>(error: E) -> FoundationError {
+impl Books {
+    fn shark_savepoint<T>(
+        &self,
+        name: &'static str,
+        operation: impl FnOnce() -> FoundationResult<T>,
+    ) -> FoundationResult<T> {
+        self.db
+            .conn()
+            .execute_batch(&format!("SAVEPOINT {name}"))
+            .map_err(sqlite_error)?;
+        match operation() {
+            Ok(value) => {
+                self.db
+                    .conn()
+                    .execute_batch(&format!("RELEASE {name}"))
+                    .map_err(sqlite_error)?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = self
+                    .db
+                    .conn()
+                    .execute_batch(&format!("ROLLBACK TO {name}; RELEASE {name}"));
+                Err(error)
+            }
+        }
+    }
+}
+
+pub(super) fn sqlite_error<E: fmt::Display>(error: E) -> FoundationError {
     FoundationError::new(FoundationErrorCode::Storage, error.to_string())
 }
 
-fn validation(message: impl Into<String>) -> FoundationError {
+pub(super) fn validation(message: impl Into<String>) -> FoundationError {
     FoundationError::new(FoundationErrorCode::Validation, message)
 }
 
-fn nonblank(value: &str, field: &str, max: usize) -> FoundationResult<()> {
+pub(super) fn nonblank(value: &str, field: &str, max: usize) -> FoundationResult<()> {
     if value.trim().is_empty() {
         return Err(validation(format!("{field} must not be blank")));
     }
@@ -239,38 +323,68 @@ fn nonblank(value: &str, field: &str, max: usize) -> FoundationResult<()> {
     Ok(())
 }
 
-fn optional_nonblank(value: Option<&str>, field: &str, max: usize) -> FoundationResult<()> {
+pub(super) fn optional_nonblank(
+    value: Option<&str>,
+    field: &str,
+    max: usize,
+) -> FoundationResult<()> {
     if let Some(value) = value {
         nonblank(value, field, max)?;
     }
     Ok(())
 }
 
-fn sha256(value: &str, field: &str) -> FoundationResult<()> {
-    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(validation(format!("{field} must be a 64-character SHA-256 hex value")));
+pub(super) fn sha256(value: &str, field: &str) -> FoundationResult<()> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(validation(format!(
+            "{field} must be a 64-character SHA-256 hex value"
+        )));
     }
     Ok(())
 }
 
-fn iso_date(value: &str, field: &str) -> FoundationResult<()> {
+pub(super) fn iso_date(value: &str, field: &str) -> FoundationResult<()> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map(|_| ())
         .map_err(|_| validation(format!("{field} must be YYYY-MM-DD")))
 }
 
-fn validate_activity(activity: &BankActivityWrite) -> FoundationResult<()> {
+pub(super) fn validate_activity(activity: &BankActivityWrite) -> FoundationResult<()> {
     nonblank(&activity.source_account_id, "source account id", 128)?;
     nonblank(&activity.source_locator, "source locator", 1024)?;
     nonblank(&activity.description, "description", 4096)?;
-    optional_nonblank(activity.institution_account_id.as_deref(), "institution account id", 512)?;
+    optional_nonblank(
+        activity.institution_account_id.as_deref(),
+        "institution account id",
+        512,
+    )?;
     optional_nonblank(activity.payee.as_deref(), "payee", 2048)?;
     optional_nonblank(activity.reference.as_deref(), "reference", 2048)?;
-    optional_nonblank(activity.external_transaction_id.as_deref(), "external transaction id", 1024)?;
-    optional_nonblank(activity.strong_identity_key.as_deref(), "strong identity key", 4096)?;
-    optional_nonblank(activity.provenance_source_reference.as_deref(), "provenance source reference", 4096)?;
-    optional_nonblank(activity.provenance_fingerprint.as_deref(), "provenance fingerprint", 4096)?;
-    optional_nonblank(activity.provenance_label.as_deref(), "provenance label", 2048)?;
+    optional_nonblank(
+        activity.external_transaction_id.as_deref(),
+        "external transaction id",
+        1024,
+    )?;
+    optional_nonblank(
+        activity.strong_identity_key.as_deref(),
+        "strong identity key",
+        4096,
+    )?;
+    optional_nonblank(
+        activity.provenance_source_reference.as_deref(),
+        "provenance source reference",
+        4096,
+    )?;
+    optional_nonblank(
+        activity.provenance_fingerprint.as_deref(),
+        "provenance fingerprint",
+        4096,
+    )?;
+    optional_nonblank(
+        activity.provenance_label.as_deref(),
+        "provenance label",
+        2048,
+    )?;
     sha256(&activity.source_file_sha256, "source file SHA-256")?;
     sha256(&activity.raw_record_sha256, "raw record SHA-256")?;
     iso_date(&activity.posted_date, "posted date")?;
@@ -278,23 +392,31 @@ fn validate_activity(activity: &BankActivityWrite) -> FoundationResult<()> {
         iso_date(value, "value date")?;
     }
     if activity.signed_amount_minor == 0 {
-        return Err(validation("bank activity amount must be non-zero whole pence"));
+        return Err(validation(
+            "bank activity amount must be non-zero whole pence",
+        ));
     }
     if activity.currency_code != "GBP" {
         return Err(validation("bank activity currency must be GBP"));
     }
     if !matches!(activity.source_format.as_str(), "csv" | "ofx" | "qfx") {
-        return Err(validation("bank activity source format must be csv, ofx or qfx"));
+        return Err(validation(
+            "bank activity source format must be csv, ofx or qfx",
+        ));
     }
     if activity.provenance_kind != activity.source_format {
-        return Err(validation("bank activity provenance kind must match the canonical source format"));
+        return Err(validation(
+            "bank activity provenance kind must match the canonical source format",
+        ));
     }
     Ok(())
 }
 
-fn signed_bank_amount(direction: &str, amount_minor: i64) -> FoundationResult<i64> {
+pub(super) fn signed_bank_amount(direction: &str, amount_minor: i64) -> FoundationResult<i64> {
     if amount_minor <= 0 {
-        return Err(validation("bank entry amount must be positive in persisted books"));
+        return Err(validation(
+            "bank entry amount must be positive in persisted books",
+        ));
     }
     match direction {
         "debit" => Ok(amount_minor),
