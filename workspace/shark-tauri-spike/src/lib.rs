@@ -6,6 +6,7 @@
 
 mod ocr_native;
 mod owner_app;
+mod owner_bank_mutation;
 mod owner_bank_review;
 
 use std::fs;
@@ -249,7 +250,12 @@ pub fn run() {
             owner_bank_review::owner_bank_import_preview_csv,
             owner_bank_review::owner_bank_import_preview_ofx_qfx,
             owner_bank_review::owner_bank_match_review,
-            owner_bank_review::owner_bank_reconcile_preview
+            owner_bank_review::owner_bank_reconcile_preview,
+            owner_bank_mutation::owner_bank_import_confirm_csv,
+            owner_bank_mutation::owner_bank_import_confirm_ofx_qfx,
+            owner_bank_mutation::owner_bank_activity_list,
+            owner_bank_mutation::owner_bank_match_confirm,
+            owner_bank_mutation::owner_bank_reconcile_finalise
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shark Books Community bounded native shell");
@@ -333,6 +339,7 @@ mod tests {
         })
         .expect("open encrypted books command");
         assert_eq!(opened.metadata.company_name, "Shark SBC-1D Windows Proof");
+        assert_eq!(opened.metadata.application_schema_version, 2);
 
         let verified = books_verify(OpenBooksRequest {
             file_name: open.file_name.clone(),
@@ -392,6 +399,11 @@ mod tests {
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
             "owner_bank_reconcile_preview",
+            "owner_bank_import_confirm_csv",
+            "owner_bank_import_confirm_ofx_qfx",
+            "owner_bank_activity_list",
+            "owner_bank_match_confirm",
+            "owner_bank_reconcile_finalise",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -453,6 +465,11 @@ mod tests {
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
             "owner_bank_reconcile_preview",
+            "owner_bank_import_confirm_csv",
+            "owner_bank_import_confirm_ofx_qfx",
+            "owner_bank_activity_list",
+            "owner_bank_match_confirm",
+            "owner_bank_reconcile_finalise",
         ] {
             assert!(
                 BUILD_RS.contains(command),
