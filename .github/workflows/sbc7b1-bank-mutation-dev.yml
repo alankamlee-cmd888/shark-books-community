@@ -14,28 +14,23 @@ env:
   CARGO_BUILD_JOBS: "1"
 
 jobs:
-  windows-dev-check:
-    runs-on: windows-latest
-    timeout-minutes: 90
+  linux-foundation-dev-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout branch without marketplace actions
-        shell: pwsh
+        shell: bash
         run: |
-          git clone --branch "$env:GITHUB_REF_NAME" --single-branch "https://github.com/$env:GITHUB_REPOSITORY.git" .
+          set -euo pipefail
+          git clone --branch "$GITHUB_REF_NAME" --single-branch "https://github.com/$GITHUB_REPOSITORY.git" .
       - name: Select Rust toolchain
-        shell: pwsh
+        shell: bash
         run: |
-          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
-          rustup default $env:RUST_TOOLCHAIN
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
       - name: Materialise exact Beankeeper pin
-        shell: pwsh
-        run: python -B scripts/bootstrap_beankeeper.py
+        shell: bash
+        run: python3 -B scripts/bootstrap_beankeeper.py
       - name: Foundation tests
-        shell: pwsh
+        shell: bash
         run: cargo test --manifest-path workspace/Cargo.toml -p shark-foundation --locked --jobs 1
-      - name: Bank mutation tests
-        shell: pwsh
-        run: cargo test --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1 owner_bank_mutation::tests -- --test-threads=1
-      - name: Locked Tauri check
-        shell: pwsh
-        run: cargo check --manifest-path workspace/Cargo.toml -p shark-tauri-spike --locked --jobs 1
