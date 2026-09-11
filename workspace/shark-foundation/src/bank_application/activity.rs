@@ -1,5 +1,69 @@
 use super::*;
 
+fn validate_canonical_identity_provenance(activity: &BankActivityWrite) -> FoundationResult<()> {
+    if activity.provenance_source_reference.as_deref() != Some(activity.source_locator.as_str()) {
+        return Err(validation(
+            "bank activity provenance source reference must equal the canonical source locator",
+        ));
+    }
+
+    let (expected_strong, expected_fingerprint) = match activity.source_format.as_str() {
+        "csv" => {
+            if activity.institution_account_id.is_some() {
+                return Err(validation(
+                    "CSV bank activity must not contain an institution account id",
+                ));
+            }
+            if !activity.source_locator.starts_with("csv:row:") {
+                return Err(validation("CSV source locator is not canonical"));
+            }
+            let strong = activity.external_transaction_id.as_ref().map(|id| {
+                format!("csv:GBP:{}:{id}", activity.source_account_id)
+            });
+            let fingerprint = strong
+                .clone()
+                .unwrap_or_else(|| format!("sha256:{}", activity.raw_record_sha256));
+            if activity.provenance_label.is_none() {
+                return Err(validation(
+                    "CSV bank activity must preserve its mapping-profile provenance label",
+                ));
+            }
+            (strong, fingerprint)
+        }
+        "ofx" | "qfx" => {
+            if !activity.source_locator.starts_with("ofx:stmttrn:") {
+                return Err(validation("OFX/QFX source locator is not canonical"));
+            }
+            let institution = activity.institution_account_id.as_deref().ok_or_else(|| {
+                validation("OFX/QFX bank activity must preserve institution account id")
+            })?;
+            let external = activity.external_transaction_id.as_deref().ok_or_else(|| {
+                validation("OFX/QFX bank activity must preserve FITID")
+            })?;
+            if activity.provenance_label.is_some() {
+                return Err(validation(
+                    "OFX/QFX bank activity must not invent a provenance label",
+                ));
+            }
+            let strong = format!("ofx:GBP:{institution}:{external}");
+            (Some(strong.clone()), strong)
+        }
+        _ => return Err(validation("unsupported canonical bank source format")),
+    };
+
+    if activity.strong_identity_key != expected_strong {
+        return Err(validation(
+            "bank activity strong source identity does not match canonical source fields",
+        ));
+    }
+    if activity.provenance_fingerprint.as_deref() != Some(expected_fingerprint.as_str()) {
+        return Err(validation(
+            "bank activity provenance fingerprint does not match canonical source identity",
+        ));
+    }
+    Ok(())
+}
+
 impl Books {
     fn strong_duplicate_row(
         &self,
@@ -105,6 +169,7 @@ impl Books {
         }
         for activity in activities {
             validate_activity(activity)?;
+            validate_canonical_identity_provenance(activity)?;
         }
 
         self.shark_savepoint("shark_bank_import_confirm", || {
@@ -177,6 +242,7 @@ impl Books {
             )
         })?;
         validate_activity(&activity)?;
+        validate_canonical_identity_provenance(&activity)?;
 
         let any_match = matched_transaction_id.is_some()
             || matched_entry_id.is_some()
