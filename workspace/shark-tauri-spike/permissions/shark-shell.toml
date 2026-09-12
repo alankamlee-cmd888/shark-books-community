@@ -23,4 +23,8 @@ commands.allow = [
   "owner_bank_activity_list",
   "owner_bank_match_confirm",
   "owner_bank_reconcile_finalise",
+  "owner_document_select_register",
+  "owner_document_verify",
+  "owner_document_attach",
+  "owner_ocr_extract_receipt",
 ]
