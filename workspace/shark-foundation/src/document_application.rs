@@ -132,33 +132,6 @@ fn validate_attachment(write: &DocumentAttachmentWrite) -> FoundationResult<()> 
     Ok(())
 }
 
-fn document_from_row(row: &beankeeper_cli::db::Row<'_>) -> FoundationResult<DocumentView> {
-    Ok(DocumentView {
-        document_id: row.get(0).map_err(sqlite_error)?,
-        storage_root_id: row.get(1).map_err(sqlite_error)?,
-        relative_path: row.get(2).map_err(sqlite_error)?,
-        original_filename: row.get(3).map_err(sqlite_error)?,
-        media_type: row.get(4).map_err(sqlite_error)?,
-        sha256: row.get(5).map_err(sqlite_error)?,
-        byte_len: row.get::<_, i64>(6).map_err(sqlite_error)?.try_into().map_err(|_| {
-            FoundationError::new(FoundationErrorCode::Storage, "persisted document byte length is invalid")
-        })?,
-        registered_by: row.get(7).map_err(sqlite_error)?,
-        registered_at: row.get(8).map_err(sqlite_error)?,
-    })
-}
-
-fn attachment_from_row(row: &beankeeper_cli::db::Row<'_>) -> FoundationResult<DocumentAttachmentView> {
-    Ok(DocumentAttachmentView {
-        document_id: row.get(0).map_err(sqlite_error)?,
-        record_kind: row.get(1).map_err(sqlite_error)?,
-        record_id: row.get(2).map_err(sqlite_error)?,
-        transaction_id: row.get(3).map_err(sqlite_error)?,
-        attached_by: row.get(4).map_err(sqlite_error)?,
-        attached_at: row.get(5).map_err(sqlite_error)?,
-    })
-}
-
 impl Books {
     fn document_savepoint<T>(
         &self,
@@ -234,7 +207,21 @@ impl Books {
         let Some(row) = rows.next().map_err(sqlite_error)? else {
             return Err(FoundationError::new(FoundationErrorCode::NotFound, "registered document was not found"));
         };
-        document_from_row(row)
+        let byte_len_raw: i64 = row.get(6).map_err(sqlite_error)?;
+        let byte_len = u64::try_from(byte_len_raw).map_err(|_| {
+            FoundationError::new(FoundationErrorCode::Storage, "persisted document byte length is invalid")
+        })?;
+        Ok(DocumentView {
+            document_id: row.get(0).map_err(sqlite_error)?,
+            storage_root_id: row.get(1).map_err(sqlite_error)?,
+            relative_path: row.get(2).map_err(sqlite_error)?,
+            original_filename: row.get(3).map_err(sqlite_error)?,
+            media_type: row.get(4).map_err(sqlite_error)?,
+            sha256: row.get(5).map_err(sqlite_error)?,
+            byte_len,
+            registered_by: row.get(7).map_err(sqlite_error)?,
+            registered_at: row.get(8).map_err(sqlite_error)?,
+        })
     }
 
     pub fn attach_registered_document(
@@ -289,7 +276,14 @@ impl Books {
         let mut rows = statement.query((&self.company_slug, document_id)).map_err(sqlite_error)?;
         let mut out = Vec::new();
         while let Some(row) = rows.next().map_err(sqlite_error)? {
-            out.push(attachment_from_row(row)?);
+            out.push(DocumentAttachmentView {
+                document_id: row.get(0).map_err(sqlite_error)?,
+                record_kind: row.get(1).map_err(sqlite_error)?,
+                record_id: row.get(2).map_err(sqlite_error)?,
+                transaction_id: row.get(3).map_err(sqlite_error)?,
+                attached_by: row.get(4).map_err(sqlite_error)?,
+                attached_at: row.get(5).map_err(sqlite_error)?,
+            });
         }
         Ok(out)
     }
