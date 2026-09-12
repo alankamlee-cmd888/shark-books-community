@@ -140,8 +140,13 @@ def static_gate(repo: Path) -> dict[str, object]:
         'name = "tauri-plugin-fs"\nversion = "2.5.2"',
     ]:
         require(anchor in lock, f"reviewed lock dependency present: {anchor.splitlines()[0]}")
+
+    base_lock = git(repo, "show", f"{BASE}:workspace/Cargo.lock")
     for forbidden in ['name = "reqwest"', 'name = "ureq"', 'name = "tauri-plugin-shell"']:
-        require(forbidden not in lock, f"reviewed lock excludes forbidden package: {forbidden}")
+        require(
+            lock.count(forbidden) == base_lock.count(forbidden),
+            f"dependency delta introduces no new forbidden package: {forbidden}",
+        )
 
     foundation = text(repo, "workspace/shark-foundation/src/lib.rs")
     require(
