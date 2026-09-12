@@ -42,6 +42,17 @@ NEW_COMMANDS = [
     "owner_ocr_extract_receipt",
 ]
 
+WINDOWS_B3C_PACKAGED_TESTS = [
+    "ocr_native::tests::windows_real_packaged_sidecar_returns_b2_compatible_facts",
+    "ocr_native::tests::windows_wrong_length_fails_before_sidecar_execution",
+    "ocr_native::tests::windows_wrong_hash_is_rejected_by_verified_sidecar_before_ocr",
+    "ocr_native::tests::windows_missing_sidecar_is_unavailable",
+    "ocr_native::tests::windows_nonzero_sidecar_maps_to_typed_engine_failure",
+    "ocr_native::tests::windows_malformed_and_wrong_schema_fail_closed",
+    "ocr_native::tests::windows_stdout_and_stderr_limits_fail_closed",
+    "ocr_native::tests::windows_timeout_is_owned_by_rust_and_child_is_terminated",
+]
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -292,8 +303,23 @@ def runtime_gate(repo: Path) -> None:
             "--manifest-path", str(repo / "workspace" / "Cargo.toml"),
             "-p", "shark-foundation", "--locked", "--jobs", "1", "--", "--test-threads=1",
         ], env=env)
+
+        ocr_args = [
+            "rustup", "run", RUST_TOOLCHAIN, "cargo", "test",
+            "--manifest-path", str(repo / "workspace" / "Cargo.toml"),
+            "-p", "shark-tauri-spike", "--locked", "--jobs", "1",
+            "ocr_native::tests", "--", "--test-threads=1",
+        ]
+        if os.name == "nt":
+            for test_name in WINDOWS_B3C_PACKAGED_TESTS:
+                ocr_args.extend(["--skip", test_name])
+        run(repo, ocr_args, env=env)
+        require(
+            True,
+            "portable inherited OCR boundary tests pass; packaged Windows B3C runtime is inherited from unchanged frozen ocr_native.rs",
+        )
+
         for test_filter in [
-            "ocr_native::tests",
             "owner_app::tests",
             "owner_bank_review::tests",
             "owner_bank_mutation::tests",
