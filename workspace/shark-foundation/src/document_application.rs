@@ -154,17 +154,21 @@ impl Books {
     pub fn register_document(&self, write: &DocumentWrite) -> FoundationResult<DocumentPersistOutcome> {
         validate_document(write)?;
 
-        if let Ok(existing) = self.document(&write.document_id) {
-            let exact = existing.storage_root_id == write.storage_root_id
-                && existing.relative_path == write.relative_path
-                && existing.original_filename == write.original_filename
-                && existing.media_type == write.media_type
-                && existing.sha256 == write.sha256
-                && existing.byte_len == write.byte_len;
-            if exact {
-                return Ok(DocumentPersistOutcome::AlreadyRegistered(existing));
+        match self.document(&write.document_id) {
+            Ok(existing) => {
+                let exact = existing.storage_root_id == write.storage_root_id
+                    && existing.relative_path == write.relative_path
+                    && existing.original_filename == write.original_filename
+                    && existing.media_type == write.media_type
+                    && existing.sha256 == write.sha256
+                    && existing.byte_len == write.byte_len;
+                if exact {
+                    return Ok(DocumentPersistOutcome::AlreadyRegistered(existing));
+                }
+                return Err(validation("document id already exists with conflicting immutable metadata"));
             }
-            return Err(validation("document id already exists with conflicting immutable metadata"));
+            Err(error) if error.code == FoundationErrorCode::NotFound => {}
+            Err(error) => return Err(error),
         }
 
         let mut statement = self.db.conn().prepare(
