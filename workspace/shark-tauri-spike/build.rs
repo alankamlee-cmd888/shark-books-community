@@ -28,6 +28,11 @@ fn main() {
                 "owner_bank_import_preview_ofx_qfx",
                 "owner_bank_match_review",
                 "owner_bank_reconcile_preview",
+                "owner_bank_import_confirm_csv",
+                "owner_bank_import_confirm_ofx_qfx",
+                "owner_bank_activity_list",
+                "owner_bank_match_confirm",
+                "owner_bank_reconcile_finalise",
             ]),
         ),
     )

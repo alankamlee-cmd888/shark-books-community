@@ -22,8 +22,16 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod bank_application;
+pub use bank_application::{
+    BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
+    BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
+    BankReconciliationPersistOutcome, BankReconciliationRecord, BankReconciliationView,
+    BankReconciliationWrite,
+};
+
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
-pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 1;
+pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 2;
 pub const SHARK_BOOKS_FORMAT_VERSION: u32 = 1;
 pub const BEANKEEPER_DATABASE_SCHEMA_VERSION: i64 = 8;
 
@@ -396,6 +404,7 @@ impl Books {
     ) -> FoundationResult<Self> {
         let db = Db::open(path, None).map_err(map_cli_error)?;
         db::create_company(db.conn(), company_slug, company_name, None).map_err(map_cli_error)?;
+        bank_application::ensure_application_schema(&db)?;
         Ok(Self {
             db,
             db_path: path.to_path_buf(),
@@ -433,6 +442,11 @@ impl Books {
             remove_sqlite_artifacts(path);
             return Err(map_cli_error(error));
         }
+        if let Err(error) = bank_application::ensure_application_schema(&db) {
+            drop(db);
+            remove_sqlite_artifacts(path);
+            return Err(error);
+        }
 
         Ok(Self {
             db,
@@ -458,10 +472,12 @@ impl Books {
 
         let key = key_provider.load_key(books_id)?;
         // Must occur before Db::open because pinned Beankeeper performs schema
-        // assurance/migration as part of the open operation.
+        // assurance/migration as part of the open operation. The Shark
+        // application-schema migration is also deliberately after this backup.
         let _backup = backup_hook.backup_before_open(path, books_id)?;
         let db = Db::open(path, Some(key.secret())).map_err(map_cli_error)?;
         db::get_company(db.conn(), books_id.as_str()).map_err(map_cli_error)?;
+        bank_application::ensure_application_schema(&db)?;
 
         Ok(Self {
             db,
@@ -1053,6 +1069,7 @@ mod tests {
             metadata.application_schema_version,
             SHARK_APPLICATION_SCHEMA_VERSION
         );
+        assert_eq!(metadata.application_schema_version, 2);
         assert_eq!(metadata.facade_api_version, SHARK_FACADE_API_VERSION);
         let migration = books.migration_metadata().expect("migration metadata");
         assert_eq!(
@@ -1157,6 +1174,10 @@ mod tests {
             books.verify().expect("verify schema"),
             BEANKEEPER_DATABASE_SCHEMA_VERSION
         );
+        assert_eq!(
+            books.metadata().expect("metadata").application_schema_version,
+            2
+        );
         drop(books);
 
         let header = fs::read(&path).expect("read encrypted database");
@@ -1169,12 +1190,65 @@ mod tests {
         let reopened = Books::open_encrypted(&path, &books_id, "test", &provider, &backup)
             .expect("reopen encrypted books");
         assert_eq!(reopened.books_id(), books_id);
+        assert_eq!(
+            reopened.metadata().expect("reopened metadata").application_schema_version,
+            2
+        );
         drop(reopened);
 
         let backup_path = backup.backup_path_for(&path);
         assert!(backup_path.is_file(), "pre-open encrypted backup must exist");
         assert_eq!(file_sha256(&backup_path), before_hash);
 
+        remove_sqlite_artifacts(&backup_path);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
+    fn application_schema_upgrade_occurs_after_preopen_backup() {
+        let path = temp_db_path("application-schema-upgrade");
+        let books_id = BooksId::new("application-schema-upgrade").expect("books id");
+        let provider = TestKeyProvider::new("schema-upgrade-key");
+        let backup = SiblingEncryptedBackup;
+
+        let books = Books::create_encrypted(
+            &path,
+            &books_id,
+            "Application Schema Upgrade",
+            "test",
+            &provider,
+        )
+        .expect("create encrypted books");
+        books
+            .db
+            .conn()
+            .execute("UPDATE shark_application_meta SET schema_version = 1 WHERE id = 1", [])
+            .expect("simulate application schema v1");
+        drop(books);
+        let before_hash = file_sha256(&path);
+
+        let reopened = Books::open_encrypted(&path, &books_id, "test", &provider, &backup)
+            .expect("open and migrate application schema");
+        let observed: i64 = reopened
+            .db
+            .conn()
+            .query_row(
+                "SELECT schema_version FROM shark_application_meta WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated application schema");
+        assert_eq!(observed, 2);
+        assert_eq!(reopened.verify().expect("Beankeeper schema"), 8);
+        drop(reopened);
+
+        let backup_path = backup.backup_path_for(&path);
+        assert!(backup_path.is_file());
+        assert_eq!(
+            file_sha256(&backup_path),
+            before_hash,
+            "pre-open backup must preserve the pre-migration encrypted database"
+        );
         remove_sqlite_artifacts(&backup_path);
         remove_sqlite_artifacts(&path);
     }
@@ -1295,5 +1369,4 @@ mod tests {
         assert!(production_encryption_required());
         assert_eq!(boundary_id(), "SBC1C-encrypted-lifecycle-v1");
     }
-
 }
