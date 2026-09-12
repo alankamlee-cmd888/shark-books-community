@@ -272,6 +272,29 @@ fn validate_filename(value: &str) -> OwnerDocumentResult<String> {
     Ok(trimmed.to_owned())
 }
 
+fn validate_portable_relative_path(value: &str) -> OwnerDocumentResult<()> {
+    if value.is_empty()
+        || value.len() > 1024
+        || value.starts_with('/')
+        || value.starts_with('~')
+        || value.contains('\\')
+        || value.contains(':')
+        || value.chars().any(char::is_control)
+    {
+        return Err(OwnerDocumentError::document(
+            "persisted document path is not a portable relative path",
+        ));
+    }
+    for segment in value.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." || segment.trim() != segment {
+            return Err(OwnerDocumentError::document(
+                "persisted document path contains an unsafe segment",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn media_type_for_filename(filename: &str) -> Option<String> {
     let extension = Path::new(filename)
         .extension()
@@ -371,8 +394,8 @@ fn copy_selected_to_root(
             document_id,
             storage_root_id: root_id.to_string(),
             relative_path,
-            original_filename,
-            media_type: media_type_for_filename(&destination.to_string_lossy()),
+            original_filename: original_filename.clone(),
+            media_type: media_type_for_filename(&original_filename),
             sha256,
             byte_len,
         }, destination, false));
@@ -398,17 +421,18 @@ fn copy_selected_to_root(
         return Err(error);
     }
 
-    match fs::rename(&temp, &destination) {
-        Ok(()) => {}
-        Err(error) if destination.exists() => {
+    let created_destination = match fs::rename(&temp, &destination) {
+        Ok(()) => true,
+        Err(_) if destination.exists() => {
             let _ = fs::remove_file(&temp);
             verify_existing_destination(root, &destination, &sha256, byte_len)?;
+            false
         }
         Err(error) => {
             let _ = fs::remove_file(&temp);
             return Err(OwnerDocumentError::document(format!("document copy could not be finalized: {error}")));
         }
-    }
+    };
 
     Ok((DocumentWrite {
         document_id,
@@ -418,7 +442,7 @@ fn copy_selected_to_root(
         media_type: media_type_for_filename(&original_filename),
         sha256,
         byte_len,
-    }, destination, true))
+    }, destination, created_destination))
 }
 
 fn register_selected_path(
@@ -451,6 +475,7 @@ fn trusted_document_path(
     roots: &NativeDocumentRootRegistry,
     document: &DocumentView,
 ) -> OwnerDocumentResult<Option<PathBuf>> {
+    validate_portable_relative_path(&document.relative_path)?;
     let root = roots.resolve(&document.storage_root_id)?;
     let candidate = root.join(&document.relative_path);
     if !candidate.exists() {
@@ -685,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn verification_detects_tamper_and_missing_file() {
+    fn verification_detects_hash_tamper_size_tamper_and_missing_file() {
         let root = temp_dir("verify-root");
         let registry = NativeDocumentRootRegistry::default();
         registry.register_native_root("root-1", root.clone()).unwrap();
@@ -708,10 +733,32 @@ mod tests {
             registered_at: "2026-09-12 00:00:00".into(),
         };
         assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::Verified);
+        fs::write(&path, b"Receipt-body").unwrap();
+        assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::HashMismatch);
         fs::write(&path, b"tampered-body").unwrap();
         assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::SizeMismatch);
         fs::remove_file(&path).unwrap();
         assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::Missing);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unsafe_persisted_relative_path_is_rejected_before_join() {
+        let root = temp_dir("unsafe-path-root");
+        let registry = NativeDocumentRootRegistry::default();
+        registry.register_native_root("root-1", root.clone()).unwrap();
+        let document = DocumentView {
+            document_id: format!("doc-{}", "11".repeat(32)),
+            storage_root_id: "root-1".into(),
+            relative_path: "../outside.png".into(),
+            original_filename: "outside.png".into(),
+            media_type: Some("image/png".into()),
+            sha256: "11".repeat(32),
+            byte_len: 1,
+            registered_by: "owner".into(),
+            registered_at: "2026-09-12 00:00:00".into(),
+        };
+        assert_eq!(trusted_document_path(&registry, &document).unwrap_err().code, "documentOperationFailed");
         let _ = fs::remove_dir_all(root);
     }
 }
