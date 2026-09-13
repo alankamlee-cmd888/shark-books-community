@@ -78,6 +78,62 @@ pub enum OwnerCorrectionPersistOutcome {
     AlreadyApplied(OwnerCorrectionView),
 }
 
+#[allow(clippy::too_many_arguments)]
+fn receipt_decision_from_values(
+    suggestion_id: String,
+    document_id: String,
+    decision_kind: String,
+    bank_activity_id: Option<i64>,
+    source_account_id: Option<String>,
+    source_file_sha256: Option<String>,
+    source_locator: Option<String>,
+    raw_record_sha256: Option<String>,
+    decided_by: String,
+    decided_at: String,
+) -> ReceiptBankDecisionView {
+    ReceiptBankDecisionView {
+        suggestion_id,
+        document_id,
+        decision_kind,
+        bank_activity_id,
+        source_account_id,
+        source_file_sha256,
+        source_locator,
+        raw_record_sha256,
+        decided_by,
+        decided_at,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn correction_from_values(
+    correction_id: String,
+    record_kind: String,
+    original_record_id: String,
+    original_transaction_id: i64,
+    reversal_record_id: String,
+    reversal_transaction_id: i64,
+    replacement_record_id: Option<String>,
+    replacement_transaction_id: Option<i64>,
+    reason: String,
+    corrected_by: String,
+    corrected_at: String,
+) -> OwnerCorrectionView {
+    OwnerCorrectionView {
+        correction_id,
+        record_kind,
+        original_record_id,
+        original_transaction_id,
+        reversal_record_id,
+        reversal_transaction_id,
+        replacement_record_id,
+        replacement_transaction_id,
+        reason,
+        corrected_by,
+        corrected_at,
+    }
+}
+
 fn validate_receipt_decision(write: &ReceiptBankDecisionWrite) -> FoundationResult<()> {
     nonblank(&write.suggestion_id, "receipt suggestion id", 128)?;
     nonblank(&write.document_id, "receipt document id", 128)?;
@@ -131,37 +187,6 @@ fn validate_receipt_decision(write: &ReceiptBankDecisionWrite) -> FoundationResu
     Ok(())
 }
 
-fn receipt_decision_from_row(row: &beankeeper_cli::db::rusqlite::Row<'_>) -> FoundationResult<ReceiptBankDecisionView> {
-    Ok(ReceiptBankDecisionView {
-        suggestion_id: row.get(0).map_err(sqlite_error)?,
-        document_id: row.get(1).map_err(sqlite_error)?,
-        decision_kind: row.get(2).map_err(sqlite_error)?,
-        bank_activity_id: row.get(3).map_err(sqlite_error)?,
-        source_account_id: row.get(4).map_err(sqlite_error)?,
-        source_file_sha256: row.get(5).map_err(sqlite_error)?,
-        source_locator: row.get(6).map_err(sqlite_error)?,
-        raw_record_sha256: row.get(7).map_err(sqlite_error)?,
-        decided_by: row.get(8).map_err(sqlite_error)?,
-        decided_at: row.get(9).map_err(sqlite_error)?,
-    })
-}
-
-fn correction_from_row(row: &beankeeper_cli::db::rusqlite::Row<'_>) -> FoundationResult<OwnerCorrectionView> {
-    Ok(OwnerCorrectionView {
-        correction_id: row.get(0).map_err(sqlite_error)?,
-        record_kind: row.get(1).map_err(sqlite_error)?,
-        original_record_id: row.get(2).map_err(sqlite_error)?,
-        original_transaction_id: row.get(3).map_err(sqlite_error)?,
-        reversal_record_id: row.get(4).map_err(sqlite_error)?,
-        reversal_transaction_id: row.get(5).map_err(sqlite_error)?,
-        replacement_record_id: row.get(6).map_err(sqlite_error)?,
-        replacement_transaction_id: row.get(7).map_err(sqlite_error)?,
-        reason: row.get(8).map_err(sqlite_error)?,
-        corrected_by: row.get(9).map_err(sqlite_error)?,
-        corrected_at: row.get(10).map_err(sqlite_error)?,
-    })
-}
-
 fn exact_receipt_repeat(
     existing: &ReceiptBankDecisionView,
     write: &ReceiptBankDecisionWrite,
@@ -212,10 +237,6 @@ fn validate_correction_request(write: &OwnerCorrectionWrite) -> FoundationResult
         ));
     }
 
-    let expected_original = format!(
-        "sbc7b1:{}:{}",
-        write.record_kind, write.original_record_id
-    );
     let expected_reversal = format!(
         "sbc7b1:correctionReversal:{}:{}",
         write.record_kind, write.reversal_record_id
@@ -246,11 +267,13 @@ fn validate_correction_request(write: &OwnerCorrectionWrite) -> FoundationResult
         if replacement_request.currency_code != "GBP" || replacement_request.lines.is_empty() {
             return Err(validation("correction replacement must be a non-empty GBP posting"));
         }
-    }
-
-    let original_reference = expected_original;
-    if original_reference.len() > 512 {
-        return Err(validation("canonical correction reference is too long"));
+        if replacement_request
+            .lines
+            .iter()
+            .any(|line| line.amount_minor <= 0)
+        {
+            return Err(validation("correction replacement contains invalid posting amount"));
+        }
     }
     Ok(())
 }
@@ -274,10 +297,21 @@ impl Books {
         let mut rows = stmt
             .query((&self.company_slug, suggestion_id))
             .map_err(sqlite_error)?;
-        match rows.next().map_err(sqlite_error)? {
-            Some(row) => Ok(Some(receipt_decision_from_row(row)?)),
-            None => Ok(None),
-        }
+        let Some(row) = rows.next().map_err(sqlite_error)? else {
+            return Ok(None);
+        };
+        Ok(Some(receipt_decision_from_values(
+            row.get(0).map_err(sqlite_error)?,
+            row.get(1).map_err(sqlite_error)?,
+            row.get(2).map_err(sqlite_error)?,
+            row.get(3).map_err(sqlite_error)?,
+            row.get(4).map_err(sqlite_error)?,
+            row.get(5).map_err(sqlite_error)?,
+            row.get(6).map_err(sqlite_error)?,
+            row.get(7).map_err(sqlite_error)?,
+            row.get(8).map_err(sqlite_error)?,
+            row.get(9).map_err(sqlite_error)?,
+        )))
     }
 
     pub fn persist_receipt_bank_decision(
@@ -363,10 +397,22 @@ impl Books {
         let mut rows = stmt
             .query((&self.company_slug, correction_id))
             .map_err(sqlite_error)?;
-        match rows.next().map_err(sqlite_error)? {
-            Some(row) => Ok(Some(correction_from_row(row)?)),
-            None => Ok(None),
-        }
+        let Some(row) = rows.next().map_err(sqlite_error)? else {
+            return Ok(None);
+        };
+        Ok(Some(correction_from_values(
+            row.get(0).map_err(sqlite_error)?,
+            row.get(1).map_err(sqlite_error)?,
+            row.get(2).map_err(sqlite_error)?,
+            row.get(3).map_err(sqlite_error)?,
+            row.get(4).map_err(sqlite_error)?,
+            row.get(5).map_err(sqlite_error)?,
+            row.get(6).map_err(sqlite_error)?,
+            row.get(7).map_err(sqlite_error)?,
+            row.get(8).map_err(sqlite_error)?,
+            row.get(9).map_err(sqlite_error)?,
+            row.get(10).map_err(sqlite_error)?,
+        )))
     }
 
     pub fn correction_for_original(
@@ -393,10 +439,22 @@ impl Books {
         let mut rows = stmt
             .query((&self.company_slug, record_kind, original_record_id))
             .map_err(sqlite_error)?;
-        match rows.next().map_err(sqlite_error)? {
-            Some(row) => Ok(Some(correction_from_row(row)?)),
-            None => Ok(None),
-        }
+        let Some(row) = rows.next().map_err(sqlite_error)? else {
+            return Ok(None);
+        };
+        Ok(Some(correction_from_values(
+            row.get(0).map_err(sqlite_error)?,
+            row.get(1).map_err(sqlite_error)?,
+            row.get(2).map_err(sqlite_error)?,
+            row.get(3).map_err(sqlite_error)?,
+            row.get(4).map_err(sqlite_error)?,
+            row.get(5).map_err(sqlite_error)?,
+            row.get(6).map_err(sqlite_error)?,
+            row.get(7).map_err(sqlite_error)?,
+            row.get(8).map_err(sqlite_error)?,
+            row.get(9).map_err(sqlite_error)?,
+            row.get(10).map_err(sqlite_error)?,
+        )))
     }
 
     pub fn apply_owner_correction(
@@ -538,7 +596,19 @@ impl Books {
             .map_err(sqlite_error)?;
         let mut all = Vec::new();
         while let Some(row) = rows.next().map_err(sqlite_error)? {
-            all.push(correction_from_row(row)?);
+            all.push(correction_from_values(
+                row.get(0).map_err(sqlite_error)?,
+                row.get(1).map_err(sqlite_error)?,
+                row.get(2).map_err(sqlite_error)?,
+                row.get(3).map_err(sqlite_error)?,
+                row.get(4).map_err(sqlite_error)?,
+                row.get(5).map_err(sqlite_error)?,
+                row.get(6).map_err(sqlite_error)?,
+                row.get(7).map_err(sqlite_error)?,
+                row.get(8).map_err(sqlite_error)?,
+                row.get(9).map_err(sqlite_error)?,
+                row.get(10).map_err(sqlite_error)?,
+            ));
         }
 
         let mut connected = HashSet::new();
@@ -591,7 +661,12 @@ mod tests {
         ))
     }
 
-    fn two_line_request(reference: &str, description: &str, debit: &str, credit: &str) -> PostTransactionRequest {
+    fn two_line_request(
+        reference: &str,
+        description: &str,
+        debit: &str,
+        credit: &str,
+    ) -> PostTransactionRequest {
         PostTransactionRequest {
             description: description.to_string(),
             date: "2026-09-14".to_string(),
@@ -599,8 +674,18 @@ mod tests {
             reference: Some(reference.to_string()),
             metadata: None,
             lines: vec![
-                PostingLine { account_code: debit.to_string(), direction: Direction::Debit, amount_minor: 1_000, memo: None },
-                PostingLine { account_code: credit.to_string(), direction: Direction::Credit, amount_minor: 1_000, memo: None },
+                PostingLine {
+                    account_code: debit.to_string(),
+                    direction: Direction::Debit,
+                    amount_minor: 1_000,
+                    memo: None,
+                },
+                PostingLine {
+                    account_code: credit.to_string(),
+                    direction: Direction::Credit,
+                    amount_minor: 1_000,
+                    memo: None,
+                },
             ],
         }
     }
@@ -710,13 +795,12 @@ mod tests {
             "4000",
             "1000",
         );
-        let mut replacement = two_line_request(
+        let replacement = two_line_request(
             "sbc7b1:moneyIn:replacement-2",
             "Replacement",
             "1000",
-            "missing-account",
+            "9999",
         );
-        replacement.lines[1].account_code = "9999".into();
         let write = OwnerCorrectionWrite {
             correction_id: "corr-rollback".into(),
             record_kind: "moneyIn".into(),
@@ -731,8 +815,14 @@ mod tests {
         let before = books.count_transactions().unwrap();
         assert!(books.apply_owner_correction(&write).is_err());
         assert_eq!(books.count_transactions().unwrap(), before);
-        assert!(books.find_by_reference("sbc7b1:correctionReversal:moneyIn:reversal-2").unwrap().is_empty());
-        assert!(books.correction_for_original("moneyIn", "original-2").unwrap().is_none());
+        assert!(books
+            .find_by_reference("sbc7b1:correctionReversal:moneyIn:reversal-2")
+            .unwrap()
+            .is_empty());
+        assert!(books
+            .correction_for_original("moneyIn", "original-2")
+            .unwrap()
+            .is_none());
         drop(books);
         let _ = fs::remove_file(path);
     }
