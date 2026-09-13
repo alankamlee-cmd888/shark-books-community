@@ -1,0 +1,49 @@
+{
+  "schema": "sbc7b1-remaining-two-batches-plan-v1",
+  "date": "2026-09-14",
+  "entry_main": "40fcd4d8a65e9b02337a198d8294d37cc0daee67",
+  "status": "PLANNING_CONTRACTS_FROZEN_IMPLEMENTATION_PENDING",
+  "sequence": [
+    "BATCH_A_MUTATION_AUDIT",
+    "BATCH_B_SUPPORTING_DATA_READ_MODELS",
+    "SBC7B1_FULL_CLOSURE",
+    "SBC7B2_OWNER_UI_BINDING",
+    "SBC7C_COMBINED_ACCEPTANCE"
+  ],
+  "batch_a": {
+    "contract": "docs/SBC7B1_MUTATION_AUDIT_BATCH_CONTRACT_2026-09-14.md",
+    "operations": [
+      "owner_receipt_suggest_bank",
+      "owner_receipt_confirm_bank",
+      "owner_receipt_reject_bank",
+      "owner_correction_preview",
+      "owner_correction_confirm",
+      "owner_correction_history"
+    ],
+    "planned_application_schema": 4,
+    "beankeeper_schema": 8,
+    "new_dependency_authorised": false,
+    "windows_then_same_sha_apple": true
+  },
+  "batch_b": {
+    "contract": "docs/SBC7B1_DATA_READMODELS_BATCH_CONTRACT_2026-09-14.md",
+    "operations": [
+      "owner_contacts_list",
+      "owner_contacts_save",
+      "owner_settings_books_info",
+      "owner_settings_storage_root_select",
+      "owner_report_summary"
+    ],
+    "planned_application_schema": 5,
+    "beankeeper_schema": 8,
+    "new_dependency_authorised": false,
+    "windows_then_same_sha_apple": true
+  },
+  "rules": {
+    "batch_b_implementation_before_batch_a_merge": false,
+    "frontend_binding_in_sbc7b1": false,
+    "product_core_semantic_rewrite_authorised": false,
+    "same_sha_platform_proof_required": true,
+    "merge_partial_evidence": false
+  }
+}
