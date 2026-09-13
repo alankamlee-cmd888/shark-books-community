@@ -42,15 +42,14 @@ NEW_COMMANDS = [
     "owner_ocr_extract_receipt",
 ]
 
-WINDOWS_B3C_PACKAGED_TESTS = [
-    "ocr_native::tests::windows_real_packaged_sidecar_returns_b2_compatible_facts",
-    "ocr_native::tests::windows_wrong_length_fails_before_sidecar_execution",
-    "ocr_native::tests::windows_wrong_hash_is_rejected_by_verified_sidecar_before_ocr",
-    "ocr_native::tests::windows_missing_sidecar_is_unavailable",
-    "ocr_native::tests::windows_nonzero_sidecar_maps_to_typed_engine_failure",
-    "ocr_native::tests::windows_malformed_and_wrong_schema_fail_closed",
-    "ocr_native::tests::windows_stdout_and_stderr_limits_fail_closed",
-    "ocr_native::tests::windows_timeout_is_owned_by_rust_and_child_is_terminated",
+PORTABLE_OCR_TESTS = [
+    "ocr_native::tests::webview_request_accepts_only_opaque_ids",
+    "ocr_native::tests::registry_is_native_only_and_resolves_by_opaque_document_id",
+    "ocr_native::tests::completed_sidecar_maps_to_b2_factual_shape_without_inferred_confidence",
+    "ocr_native::tests::exact_one_json_object_and_schema_are_enforced",
+    "ocr_native::tests::completed_hash_or_length_drift_fails_integrity_closed",
+    "ocr_native::tests::sidecar_failure_is_typed_and_nonzero_is_required",
+    "ocr_native::tests::invalid_factual_values_fail_closed",
 ]
 
 
@@ -304,19 +303,16 @@ def runtime_gate(repo: Path) -> None:
             "-p", "shark-foundation", "--locked", "--jobs", "1", "--", "--test-threads=1",
         ], env=env)
 
-        ocr_args = [
-            "rustup", "run", RUST_TOOLCHAIN, "cargo", "test",
-            "--manifest-path", str(repo / "workspace" / "Cargo.toml"),
-            "-p", "shark-tauri-spike", "--locked", "--jobs", "1",
-            "ocr_native::tests", "--", "--test-threads=1",
-        ]
-        if os.name == "nt":
-            for test_name in WINDOWS_B3C_PACKAGED_TESTS:
-                ocr_args.extend(["--skip", test_name])
-        run(repo, ocr_args, env=env)
+        for test_name in PORTABLE_OCR_TESTS:
+            run(repo, [
+                "rustup", "run", RUST_TOOLCHAIN, "cargo", "test",
+                "--manifest-path", str(repo / "workspace" / "Cargo.toml"),
+                "-p", "shark-tauri-spike", "--locked", "--jobs", "1",
+                test_name, "--", "--exact", "--test-threads=1",
+            ], env=env)
         require(
             True,
-            "portable inherited OCR boundary tests pass; packaged Windows B3C runtime is inherited from unchanged frozen ocr_native.rs",
+            "seven exact portable inherited OCR boundary tests pass; packaged Windows B3C runtime is inherited from unchanged frozen ocr_native.rs",
         )
 
         for test_filter in [
