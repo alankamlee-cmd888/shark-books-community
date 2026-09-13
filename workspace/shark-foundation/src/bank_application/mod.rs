@@ -1,4 +1,4 @@
-//! SBC-7B1 Slice 2B Shark-owned bank application persistence.
+//! SBC-7B1 Shark-owned application persistence.
 //!
 //! These types and methods own only Shark application metadata inside the same
 //! encrypted books database. Raw SQLite/Beankeeper objects never cross the
@@ -7,7 +7,7 @@
 
 use super::*;
 
-pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 2;
+pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 3;
 pub(super) const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
 pub(super) const MAX_ACTIVITY_BATCH: usize = 10_000;
 pub(super) const MAX_ACTIVITY_PAGE: i64 = 500;
@@ -169,7 +169,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     }
 
     db.conn()
-        .execute_batch("SAVEPOINT shark_application_schema_v2")
+        .execute_batch("SAVEPOINT shark_application_schema_v3")
         .map_err(sqlite_error)?;
     let migration = db.conn().execute_batch(
         r#"
@@ -240,8 +240,36 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
             FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
             FOREIGN KEY(entry_id) REFERENCES entries(id) ON DELETE RESTRICT
         );
+        CREATE TABLE IF NOT EXISTS shark_document (
+            company_slug TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            storage_root_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            media_type TEXT,
+            sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+            byte_len INTEGER NOT NULL CHECK(byte_len > 0 AND byte_len <= 26214400),
+            registered_by TEXT NOT NULL,
+            registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(company_slug, document_id),
+            UNIQUE(company_slug, storage_root_id, relative_path)
+        );
+        CREATE TABLE IF NOT EXISTS shark_document_attachment (
+            company_slug TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            record_kind TEXT NOT NULL CHECK(record_kind IN ('moneyIn','moneyOut')),
+            record_id TEXT NOT NULL,
+            transaction_id INTEGER NOT NULL,
+            attached_by TEXT NOT NULL,
+            attached_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(company_slug, document_id, record_kind, record_id),
+            FOREIGN KEY(company_slug, document_id) REFERENCES shark_document(company_slug, document_id) ON DELETE RESTRICT,
+            FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT
+        );
+        CREATE INDEX IF NOT EXISTS idx_shark_document_attachment_target
+            ON shark_document_attachment(company_slug, record_kind, record_id);
         INSERT INTO shark_application_meta(id, schema_version)
-            VALUES(1, 2)
+            VALUES(1, 3)
             ON CONFLICT(id) DO UPDATE SET schema_version = excluded.schema_version
             WHERE shark_application_meta.schema_version < excluded.schema_version;
         "#,
@@ -249,11 +277,11 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     if let Err(error) = migration {
         let _ = db
             .conn()
-            .execute_batch("ROLLBACK TO shark_application_schema_v2; RELEASE shark_application_schema_v2");
+            .execute_batch("ROLLBACK TO shark_application_schema_v3; RELEASE shark_application_schema_v3");
         return Err(sqlite_error(error));
     }
     db.conn()
-        .execute_batch("RELEASE shark_application_schema_v2")
+        .execute_batch("RELEASE shark_application_schema_v3")
         .map_err(sqlite_error)?;
 
     let observed: i64 = db

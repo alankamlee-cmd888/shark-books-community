@@ -23,15 +23,20 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod bank_application;
+mod document_application;
 pub use bank_application::{
     BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
     BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
     BankReconciliationPersistOutcome, BankReconciliationRecord, BankReconciliationView,
     BankReconciliationWrite,
 };
+pub use document_application::{
+    DocumentAttachmentPersistOutcome, DocumentAttachmentView, DocumentAttachmentWrite,
+    DocumentPersistOutcome, DocumentView, DocumentWrite,
+};
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
-pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 2;
+pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 3;
 pub const SHARK_BOOKS_FORMAT_VERSION: u32 = 1;
 pub const BEANKEEPER_DATABASE_SCHEMA_VERSION: i64 = 8;
 
@@ -1069,7 +1074,7 @@ mod tests {
             metadata.application_schema_version,
             SHARK_APPLICATION_SCHEMA_VERSION
         );
-        assert_eq!(metadata.application_schema_version, 2);
+        assert_eq!(metadata.application_schema_version, 3);
         assert_eq!(metadata.facade_api_version, SHARK_FACADE_API_VERSION);
         let migration = books.migration_metadata().expect("migration metadata");
         assert_eq!(
@@ -1176,7 +1181,7 @@ mod tests {
         );
         assert_eq!(
             books.metadata().expect("metadata").application_schema_version,
-            2
+            3
         );
         drop(books);
 
@@ -1192,7 +1197,7 @@ mod tests {
         assert_eq!(reopened.books_id(), books_id);
         assert_eq!(
             reopened.metadata().expect("reopened metadata").application_schema_version,
-            2
+            3
         );
         drop(reopened);
 
@@ -1222,8 +1227,8 @@ mod tests {
         books
             .db
             .conn()
-            .execute("UPDATE shark_application_meta SET schema_version = 1 WHERE id = 1", [])
-            .expect("simulate application schema v1");
+            .execute("UPDATE shark_application_meta SET schema_version = 2 WHERE id = 1", [])
+            .expect("simulate application schema v2");
         drop(books);
         let before_hash = file_sha256(&path);
 
@@ -1238,7 +1243,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read migrated application schema");
-        assert_eq!(observed, 2);
+        assert_eq!(observed, 3);
         assert_eq!(reopened.verify().expect("Beankeeper schema"), 8);
         drop(reopened);
 
