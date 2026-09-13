@@ -27,4 +27,10 @@ commands.allow = [
   "owner_document_verify",
   "owner_document_attach",
   "owner_ocr_extract_receipt",
+  "owner_receipt_suggest_bank",
+  "owner_receipt_confirm_bank",
+  "owner_receipt_reject_bank",
+  "owner_correction_preview",
+  "owner_correction_confirm",
+  "owner_correction_history",
 ]
