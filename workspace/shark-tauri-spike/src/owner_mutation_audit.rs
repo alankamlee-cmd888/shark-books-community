@@ -26,6 +26,8 @@ const OWNER_MUTATION_AUDIT_VERSION: u32 = 1;
 const MAX_RECEIPT_SUGGESTIONS: usize = 32;
 const MAX_BANK_ACTIVITY_CANDIDATES: i64 = 500;
 const MAX_CORRECTION_HISTORY: i64 = 100;
+const CORRECTION_PREVIEW_PREFIX: &str = "correction-preview-";
+const CORRECTION_ID_PREFIX: &str = "correction-";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -36,23 +38,38 @@ pub(crate) struct OwnerMutationAuditError {
 
 impl OwnerMutationAuditError {
     fn invalid(message: impl Into<String>) -> Self {
-        Self { code: "invalidInput", message: message.into() }
+        Self {
+            code: "invalidInput",
+            message: message.into(),
+        }
     }
 
     fn stale(message: impl Into<String>) -> Self {
-        Self { code: "staleReview", message: message.into() }
+        Self {
+            code: "staleReview",
+            message: message.into(),
+        }
     }
 
     fn document(message: impl Into<String>) -> Self {
-        Self { code: "documentReviewFailed", message: message.into() }
+        Self {
+            code: "documentReviewFailed",
+            message: message.into(),
+        }
     }
 
     fn foundation(error: FoundationError) -> Self {
-        Self { code: "booksOperationFailed", message: error.to_string() }
+        Self {
+            code: "booksOperationFailed",
+            message: error.to_string(),
+        }
     }
 
     fn domain(error: impl std::fmt::Display) -> Self {
-        Self { code: "invalidInput", message: error.to_string() }
+        Self {
+            code: "invalidInput",
+            message: error.to_string(),
+        }
     }
 }
 
@@ -110,6 +127,10 @@ fn parse_date(value: &str) -> OwnerMutationAuditResult<core::Date> {
     core::Date::new(year, month, day).map_err(OwnerMutationAuditError::domain)
 }
 
+fn canonical_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 // -----------------------------------------------------------------------------
 // Receipt suggestion registry and factual OCR conversion
 // -----------------------------------------------------------------------------
@@ -119,11 +140,6 @@ struct RegisteredReceiptCandidate {
     token: String,
     identity: core::receipt_bank_suggestion::BankLineIdentity,
     bank_activity_id: i64,
-    posted_date: String,
-    amount_pence: i64,
-    description: String,
-    payee: Option<String>,
-    reference: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,7 +211,10 @@ impl ReceiptSuggestionRegistry {
             identity.source_locator(),
             identity.raw_record_sha256()
         );
-        format!("receipt-candidate-{}", core::bank_import::sha256_hex(seed.as_bytes()))
+        format!(
+            "receipt-candidate-{}",
+            core::bank_import::sha256_hex(seed.as_bytes())
+        )
     }
 
     fn insert(
@@ -203,10 +222,9 @@ impl ReceiptSuggestionRegistry {
         suggestion_id: String,
         suggestion: RegisteredReceiptSuggestion,
     ) -> OwnerMutationAuditResult<()> {
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| OwnerMutationAuditError::stale("receipt suggestion registry is unavailable"))?;
+        let mut inner = self.inner.lock().map_err(|_| {
+            OwnerMutationAuditError::stale("receipt suggestion registry is unavailable")
+        })?;
         if inner.entries.contains_key(&suggestion_id) {
             return Err(OwnerMutationAuditError::stale(
                 "receipt suggestion identity collision",
@@ -222,11 +240,16 @@ impl ReceiptSuggestionRegistry {
         Ok(())
     }
 
-    fn resolve(&self, suggestion_id: &str) -> OwnerMutationAuditResult<RegisteredReceiptSuggestion> {
+    fn resolve(
+        &self,
+        suggestion_id: &str,
+    ) -> OwnerMutationAuditResult<RegisteredReceiptSuggestion> {
         let suggestion_id = bounded_id(suggestion_id, "receipt suggestion id")?;
         self.inner
             .lock()
-            .map_err(|_| OwnerMutationAuditError::stale("receipt suggestion registry is unavailable"))?
+            .map_err(|_| {
+                OwnerMutationAuditError::stale("receipt suggestion registry is unavailable")
+            })?
             .entries
             .get(&suggestion_id)
             .cloned()
@@ -309,7 +332,9 @@ struct NativeOcrWarningMirror {
     detail: Option<String>,
 }
 
-fn confidence(value: Option<u16>) -> OwnerMutationAuditResult<Option<core::ocr::OcrConfidenceBps>> {
+fn confidence(
+    value: Option<u16>,
+) -> OwnerMutationAuditResult<Option<core::ocr::OcrConfidenceBps>> {
     value
         .map(core::ocr::OcrConfidenceBps::new)
         .transpose()
@@ -345,7 +370,8 @@ fn core_extraction_from_native(
     let reference = core::documents::DocumentReference::from_persisted(
         document_id.clone(),
         document_id,
-        core::RecordId::new(document.storage_root_id.clone()).map_err(OwnerMutationAuditError::domain)?,
+        core::RecordId::new(document.storage_root_id.clone())
+            .map_err(OwnerMutationAuditError::domain)?,
         document.relative_path.clone(),
         document.original_filename.clone(),
         document.media_type.clone(),
@@ -369,8 +395,11 @@ fn core_extraction_from_native(
         .candidates
         .merchant_text
         .map(|candidate| {
-            core::ocr::OcrTextCandidate::new(candidate.value, confidence(candidate.confidence_bps)?)
-                .map_err(OwnerMutationAuditError::domain)
+            core::ocr::OcrTextCandidate::new(
+                candidate.value,
+                confidence(candidate.confidence_bps)?,
+            )
+            .map_err(OwnerMutationAuditError::domain)
         })
         .transpose()?;
     let document_date = native
@@ -409,8 +438,11 @@ fn core_extraction_from_native(
         .candidates
         .reference
         .map(|candidate| {
-            core::ocr::OcrTextCandidate::new(candidate.value, confidence(candidate.confidence_bps)?)
-                .map_err(OwnerMutationAuditError::domain)
+            core::ocr::OcrTextCandidate::new(
+                candidate.value,
+                confidence(candidate.confidence_bps)?,
+            )
+            .map_err(OwnerMutationAuditError::domain)
         })
         .transpose()?;
     let candidates = core::ocr::OcrReceiptCandidates::new(
@@ -463,7 +495,9 @@ fn source_kind(value: &str) -> OwnerMutationAuditResult<core::SourceKind> {
     }
 }
 
-fn bank_line_from_activity(view: &BankActivityView) -> OwnerMutationAuditResult<core::bank_import::BankLine> {
+fn bank_line_from_activity(
+    view: &BankActivityView,
+) -> OwnerMutationAuditResult<core::bank_import::BankLine> {
     let activity = &view.activity;
     let provenance = core::SourceProvenance::new(
         source_kind(&activity.provenance_kind)?,
@@ -473,7 +507,8 @@ fn bank_line_from_activity(view: &BankActivityView) -> OwnerMutationAuditResult<
     )
     .map_err(OwnerMutationAuditError::domain)?;
     let line = core::bank_import::BankLine::new(
-        core::RecordId::new(activity.source_account_id.clone()).map_err(OwnerMutationAuditError::domain)?,
+        core::RecordId::new(activity.source_account_id.clone())
+            .map_err(OwnerMutationAuditError::domain)?,
         activity.institution_account_id.clone(),
         source_format(&activity.source_format)?,
         activity.source_file_sha256.clone(),
@@ -489,7 +524,7 @@ fn bank_line_from_activity(view: &BankActivityView) -> OwnerMutationAuditResult<
         provenance,
     )
     .map_err(OwnerMutationAuditError::domain)?;
-    if line.strong_identity_key() != activity.strong_identity_key {
+    if line.strong_identity_key() != activity.strong_identity_key.clone() {
         return Err(OwnerMutationAuditError::stale(
             "persisted bank activity identity no longer reconstructs canonically",
         ));
@@ -565,15 +600,20 @@ pub(crate) enum OwnerReceiptSuggestionOutcome {
         ambiguous_top: bool,
         requires_confirmation: bool,
     },
-    OcrUnavailable { reason: String },
-    OcrFailed { kind: String },
+    OcrUnavailable {
+        reason: String,
+    },
+    OcrFailed {
+        kind: String,
+    },
 }
 
 fn decode_native_ocr(outcome: &ShellOcrOutcome) -> OwnerMutationAuditResult<NativeOcrMirror> {
     let value = serde_json::to_value(outcome)
         .map_err(|_| OwnerMutationAuditError::document("OCR result could not be serialized"))?;
-    serde_json::from_value(value)
-        .map_err(|_| OwnerMutationAuditError::document("OCR result does not match the factual contract"))
+    serde_json::from_value(value).map_err(|_| {
+        OwnerMutationAuditError::document("OCR result does not match the factual contract")
+    })
 }
 
 #[tauri::command]
@@ -589,12 +629,12 @@ pub(crate) fn owner_receipt_suggest_bank(
     let ocr_request: super::owner_documents_ocr::OwnerOcrExtractRequest =
         serde_json::from_value(serde_json::json!({
             "books": {
-                "fileName": request.books.file_name,
-                "booksId": request.books.books_id,
-                "actor": request.books.actor
+                "fileName": request.books.file_name.clone(),
+                "booksId": request.books.books_id.clone(),
+                "actor": request.books.actor.clone()
             },
-            "requestId": request_id,
-            "documentId": document_id
+            "requestId": request_id.clone(),
+            "documentId": document_id.clone()
         }))
         .map_err(|_| OwnerMutationAuditError::invalid("receipt OCR request is invalid"))?;
     let native = super::owner_documents_ocr::owner_ocr_extract_receipt(
@@ -604,14 +644,13 @@ pub(crate) fn owner_receipt_suggest_bank(
         ocr_request,
     )
     .map_err(|error| OwnerMutationAuditError::document(format!("{error:?}")))?;
-    let mirrored = decode_native_ocr(&native)?;
-    let extraction_mirror = match mirrored {
+    let extraction_mirror = match decode_native_ocr(&native)? {
         NativeOcrMirror::Completed { extraction } => extraction,
         NativeOcrMirror::Unavailable { reason } => {
-            return Ok(OwnerReceiptSuggestionOutcome::OcrUnavailable { reason })
+            return Ok(OwnerReceiptSuggestionOutcome::OcrUnavailable { reason });
         }
         NativeOcrMirror::Failed { kind } => {
-            return Ok(OwnerReceiptSuggestionOutcome::OcrFailed { kind })
+            return Ok(OwnerReceiptSuggestionOutcome::OcrFailed { kind });
         }
     };
 
@@ -634,9 +673,10 @@ pub(crate) fn owner_receipt_suggest_bank(
         authoritative.push((row, identity));
         lines.push(line);
     }
-    let ranked = core::receipt_bank_suggestion::rank_receipt_bank_suggestions(&extraction, &lines);
-    let suggestion_id = suggestions.new_suggestion_id(&request.books, &request_id, &document_id)?;
 
+    let ranked = core::receipt_bank_suggestion::rank_receipt_bank_suggestions(&extraction, &lines);
+    let suggestion_id =
+        suggestions.new_suggestion_id(&request.books, &request_id, &document_id)?;
     let mut registered = Vec::new();
     let mut response_candidates = Vec::new();
     for candidate in ranked.candidates() {
@@ -653,11 +693,6 @@ pub(crate) fn owner_receipt_suggest_bank(
             token: token.clone(),
             identity: identity.clone(),
             bank_activity_id: row.id,
-            posted_date: row.activity.posted_date.clone(),
-            amount_pence: row.activity.signed_amount_minor,
-            description: row.activity.description.clone(),
-            payee: row.activity.payee.clone(),
-            reference: row.activity.reference.clone(),
         });
         response_candidates.push(OwnerReceiptCandidateView {
             candidate_id: token,
@@ -752,18 +787,25 @@ fn verify_registered_document(
     let verify_request: super::owner_documents_ocr::OwnerDocumentVerifyRequest =
         serde_json::from_value(serde_json::json!({
             "books": {
-                "fileName": books.file_name,
-                "booksId": books.books_id,
-                "actor": books.actor
+                "fileName": books.file_name.clone(),
+                "booksId": books.books_id.clone(),
+                "actor": books.actor.clone()
             },
             "documentId": document_id
         }))
-        .map_err(|_| OwnerMutationAuditError::invalid("document verification request is invalid"))?;
+        .map_err(|_| {
+            OwnerMutationAuditError::invalid("document verification request is invalid")
+        })?;
     let outcome = super::owner_documents_ocr::owner_document_verify(roots, verify_request)
         .map_err(|error| OwnerMutationAuditError::document(format!("{error:?}")))?;
-    let value = serde_json::to_value(outcome)
-        .map_err(|_| OwnerMutationAuditError::document("document verification could not be serialized"))?;
-    if value.get("integrity").and_then(serde_json::Value::as_str) != Some("verified") {
+    let value = serde_json::to_value(outcome).map_err(|_| {
+        OwnerMutationAuditError::document("document verification could not be serialized")
+    })?;
+    if value
+        .get("integrity")
+        .and_then(serde_json::Value::as_str)
+        != Some("verified")
+    {
         return Err(OwnerMutationAuditError::stale(
             "registered document changed after receipt review; review it again",
         ));
@@ -785,7 +827,9 @@ pub(crate) fn owner_receipt_confirm_bank(
         .candidates
         .iter()
         .find(|candidate| candidate.token == candidate_id)
-        .ok_or_else(|| OwnerMutationAuditError::stale("receipt candidate is not part of this suggestion"))?;
+        .ok_or_else(|| {
+            OwnerMutationAuditError::stale("receipt candidate is not part of this suggestion")
+        })?;
     core::receipt_bank_suggestion::confirm_receipt_bank_suggestion(
         &registered.suggestions,
         &candidate.identity,
@@ -803,7 +847,9 @@ pub(crate) fn owner_receipt_confirm_bank(
         ));
     }
     let current_line = bank_line_from_activity(&current)?;
-    if core::receipt_bank_suggestion::BankLineIdentity::for_line(&current_line) != candidate.identity {
+    if core::receipt_bank_suggestion::BankLineIdentity::for_line(&current_line)
+        != candidate.identity
+    {
         return Err(OwnerMutationAuditError::stale(
             "bank activity identity changed after receipt review",
         ));
@@ -982,7 +1028,9 @@ impl CorrectionBusinessUse {
         match self {
             Self::Business => Ok(core::BusinessUse::Business),
             Self::Private => Ok(core::BusinessUse::Private),
-            Self::Mixed { business_basis_points } => core::BusinessUse::mixed(*business_basis_points)
+            Self::Mixed {
+                business_basis_points,
+            } => core::BusinessUse::mixed(*business_basis_points)
                 .map_err(OwnerMutationAuditError::domain),
         }
     }
@@ -992,19 +1040,24 @@ impl CorrectionBusinessUse {
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 enum OwnerCorrectionReplacement {
     MoneyIn {
+        #[serde(rename = "recordId")]
         record_id: String,
         description: String,
         date: String,
+        #[serde(rename = "amountPence")]
         amount_pence: i64,
         category: CorrectionIncomeCategory,
         settlement: CorrectionSettlement,
     },
     MoneyOut {
+        #[serde(rename = "recordId")]
         record_id: String,
         description: String,
         date: String,
+        #[serde(rename = "amountPence")]
         amount_pence: i64,
         category: CorrectionExpenseCategory,
+        #[serde(rename = "businessUse")]
         business_use: CorrectionBusinessUse,
         settlement: CorrectionSettlement,
     },
@@ -1151,7 +1204,7 @@ fn foundation_request_from_plan(
 fn replacement_request(
     replacement: &OwnerCorrectionReplacement,
     record_kind: OwnerCorrectionRecordKind,
-) -> OwnerMutationAuditResult<PostTransactionRequest> {
+) -> OwnerMutationAuditResult<(String, PostTransactionRequest)> {
     if replacement.kind() != record_kind {
         return Err(OwnerMutationAuditError::invalid(
             "correction replacement must have the same record kind as the original",
@@ -1166,18 +1219,22 @@ fn replacement_request(
             category,
             settlement,
         } => {
-            let id = core::RecordId::new(record_id.clone()).map_err(OwnerMutationAuditError::domain)?;
+            let id = core::RecordId::new(record_id.clone())
+                .map_err(OwnerMutationAuditError::domain)?;
             let record = core::IncomeRecord::new(
                 id.clone(),
                 description.clone(),
                 parse_date(date)?,
-                core::GbpAmount::positive_minor(*amount_pence).map_err(OwnerMutationAuditError::domain)?,
+                core::GbpAmount::positive_minor(*amount_pence)
+                    .map_err(OwnerMutationAuditError::domain)?,
                 (*category).into(),
                 (*settlement).into(),
                 core::SourceProvenance::manual(),
             )
             .map_err(OwnerMutationAuditError::domain)?;
-            Ok(foundation_request_from_plan(&core::plan_income(&record), "moneyIn", id.as_str()))
+            let posting =
+                foundation_request_from_plan(&core::plan_income(&record), "moneyIn", id.as_str());
+            Ok((id.as_str().to_string(), posting))
         }
         OwnerCorrectionReplacement::MoneyOut {
             record_id,
@@ -1188,12 +1245,14 @@ fn replacement_request(
             business_use,
             settlement,
         } => {
-            let id = core::RecordId::new(record_id.clone()).map_err(OwnerMutationAuditError::domain)?;
+            let id = core::RecordId::new(record_id.clone())
+                .map_err(OwnerMutationAuditError::domain)?;
             let record = core::ExpenseRecord::new(
                 id.clone(),
                 description.clone(),
                 parse_date(date)?,
-                core::GbpAmount::positive_minor(*amount_pence).map_err(OwnerMutationAuditError::domain)?,
+                core::GbpAmount::positive_minor(*amount_pence)
+                    .map_err(OwnerMutationAuditError::domain)?,
                 (*category).into(),
                 business_use.to_core()?,
                 (*settlement).into(),
@@ -1202,7 +1261,8 @@ fn replacement_request(
             )
             .map_err(OwnerMutationAuditError::domain)?;
             let plan = core::plan_expense(&record).map_err(OwnerMutationAuditError::domain)?;
-            Ok(foundation_request_from_plan(&plan, "moneyOut", id.as_str()))
+            let posting = foundation_request_from_plan(&plan, "moneyOut", id.as_str());
+            Ok((id.as_str().to_string(), posting))
         }
     }
 }
@@ -1216,7 +1276,20 @@ fn transaction_total(transaction: &TransactionView) -> OwnerMutationAuditResult<
                 .ok_or_else(|| OwnerMutationAuditError::invalid("transaction total overflow"))?;
         }
     }
-    i64::try_from(total).map_err(|_| OwnerMutationAuditError::invalid("transaction total overflow"))
+    i64::try_from(total)
+        .map_err(|_| OwnerMutationAuditError::invalid("transaction total overflow"))
+}
+
+fn posting_total(request: &PostTransactionRequest) -> OwnerMutationAuditResult<i64> {
+    let mut total: i128 = 0;
+    for line in &request.lines {
+        if matches!(&line.direction, Direction::Debit) {
+            total = total
+                .checked_add(i128::from(line.amount_minor))
+                .ok_or_else(|| OwnerMutationAuditError::invalid("posting total overflow"))?;
+        }
+    }
+    i64::try_from(total).map_err(|_| OwnerMutationAuditError::invalid("posting total overflow"))
 }
 
 fn reversal_request(
@@ -1244,7 +1317,7 @@ fn reversal_request(
                 _ => {
                     return Err(OwnerMutationAuditError::invalid(
                         "authoritative transaction contains an invalid posting direction",
-                    ))
+                    ));
                 }
             };
             Ok(PostingLine {
@@ -1278,35 +1351,50 @@ fn reversal_request(
     })
 }
 
-fn summary_from_request(record_id: &str, request: &PostTransactionRequest) -> OwnerMutationAuditResult<OwnerCorrectionTransactionSummary> {
-    let transaction = TransactionView {
-        id: 1,
-        description: request.description.clone(),
-        reference: request.reference.clone(),
-        currency: request.currency_code.clone(),
-        date: request.date.clone(),
-        entries: request
-            .lines
-            .iter()
-            .enumerate()
-            .map(|(index, line)| shark_foundation::EntryView {
-                id: i64::try_from(index + 1).unwrap_or(i64::MAX),
-                account_code: line.account_code.clone(),
-                direction: match line.direction {
-                    Direction::Debit => "debit".to_string(),
-                    Direction::Credit => "credit".to_string(),
-                },
-                amount_minor: line.amount_minor,
-                status: "unposted".to_string(),
-            })
-            .collect(),
-    };
+fn summary_from_posting(
+    record_id: &str,
+    request: &PostTransactionRequest,
+) -> OwnerMutationAuditResult<OwnerCorrectionTransactionSummary> {
     Ok(OwnerCorrectionTransactionSummary {
         record_id: record_id.to_string(),
         date: request.date.clone(),
         description: request.description.clone(),
-        amount_pence: transaction_total(&transaction)?,
+        amount_pence: posting_total(request)?,
     })
+}
+
+fn correction_id_from_preview_fingerprint(
+    preview_fingerprint: &str,
+) -> OwnerMutationAuditResult<String> {
+    let supplied = bounded_id(preview_fingerprint, "correction preview fingerprint")?;
+    let digest = supplied.strip_prefix(CORRECTION_PREVIEW_PREFIX).ok_or_else(|| {
+        OwnerMutationAuditError::invalid("correction preview fingerprint is not canonical")
+    })?;
+    if !canonical_sha256(digest) {
+        return Err(OwnerMutationAuditError::invalid(
+            "correction preview fingerprint is not canonical",
+        ));
+    }
+    Ok(format!("{CORRECTION_ID_PREFIX}{}", digest.to_ascii_lowercase()))
+}
+
+fn replacement_record_id(
+    replacement: Option<&OwnerCorrectionReplacement>,
+    expected_kind: OwnerCorrectionRecordKind,
+) -> OwnerMutationAuditResult<Option<String>> {
+    match replacement {
+        None => Ok(None),
+        Some(replacement) => {
+            if replacement.kind() != expected_kind {
+                return Err(OwnerMutationAuditError::invalid(
+                    "correction replacement must have the same record kind as the original",
+                ));
+            }
+            let id = core::RecordId::new(replacement.record_id().to_string())
+                .map_err(OwnerMutationAuditError::domain)?;
+            Ok(Some(id.as_str().to_string()))
+        }
+    }
 }
 
 fn build_correction_execution(
@@ -1314,13 +1402,20 @@ fn build_correction_execution(
 ) -> OwnerMutationAuditResult<CorrectionExecutionPlan> {
     let original_record_id = bounded_id(&request.original_record_id, "original record id")?;
     let reversal_record_id = bounded_id(&request.reversal_record_id, "reversal record id")?;
-    if request.reason.trim().is_empty() || request.reason.len() > 512 {
+    let reason = request.reason.trim().to_string();
+    if reason.is_empty() || reason.len() > 512 {
         return Err(OwnerMutationAuditError::invalid(
             "correction reason must be 1-512 non-whitespace characters",
         ));
     }
+    let requested_replacement_id =
+        replacement_record_id(request.replacement.as_ref(), request.record_kind)?;
     let books = request.books.open()?;
-    let reference = format!("sbc7b1:{}:{}", request.record_kind.as_str(), original_record_id);
+    let reference = format!(
+        "sbc7b1:{}:{}",
+        request.record_kind.as_str(),
+        original_record_id
+    );
     let originals = books
         .find_by_reference(&reference)
         .map_err(OwnerMutationAuditError::foundation)?;
@@ -1339,31 +1434,46 @@ fn build_correction_execution(
         ));
     }
     let original = &originals[0];
-    let replacement_id = request
-        .replacement
+    let original_core_id = core::RecordId::new(original_record_id.clone())
+        .map_err(OwnerMutationAuditError::domain)?;
+    let reversal_core_id = core::RecordId::new(reversal_record_id.clone())
+        .map_err(OwnerMutationAuditError::domain)?;
+    let replacement_core_id = requested_replacement_id
         .as_ref()
-        .map(|replacement| core::RecordId::new(replacement.record_id().to_string()))
+        .map(|value| core::RecordId::new(value.clone()))
         .transpose()
         .map_err(OwnerMutationAuditError::domain)?;
-    let original_core_id = core::RecordId::new(original_record_id.clone()).map_err(OwnerMutationAuditError::domain)?;
-    let reversal_core_id = core::RecordId::new(reversal_record_id.clone()).map_err(OwnerMutationAuditError::domain)?;
     let _plan = core::matching::CorrectionPlan::new(
         original_core_id,
         reversal_core_id,
-        replacement_id.clone(),
+        replacement_core_id,
         request.books.actor.clone(),
-        request.reason.clone(),
+        reason.clone(),
     )
     .map_err(OwnerMutationAuditError::domain)?;
 
     let reversal = reversal_request(original, request.record_kind, &reversal_record_id)?;
-    let replacement = request
+    let replacement_pair = request
         .replacement
         .as_ref()
         .map(|replacement| replacement_request(replacement, request.record_kind))
         .transpose()?;
+    let replacement = replacement_pair.as_ref().map(|(_, posting)| posting.clone());
+    let canonical_replacement_id = replacement_pair
+        .as_ref()
+        .map(|(record_id, _)| record_id.clone());
+    if canonical_replacement_id != requested_replacement_id {
+        return Err(OwnerMutationAuditError::invalid(
+            "correction replacement identity is inconsistent",
+        ));
+    }
+
+    let reversal_reference = reversal
+        .reference
+        .as_deref()
+        .ok_or_else(|| OwnerMutationAuditError::invalid("reversal reference is missing"))?;
     if !books
-        .find_by_reference(reversal.reference.as_deref().expect("reversal reference"))
+        .find_by_reference(reversal_reference)
         .map_err(OwnerMutationAuditError::foundation)?
         .is_empty()
     {
@@ -1372,8 +1482,12 @@ fn build_correction_execution(
         ));
     }
     if let Some(replacement_request) = replacement.as_ref() {
+        let replacement_reference = replacement_request
+            .reference
+            .as_deref()
+            .ok_or_else(|| OwnerMutationAuditError::invalid("replacement reference is missing"))?;
         if !books
-            .find_by_reference(replacement_request.reference.as_deref().expect("replacement reference"))
+            .find_by_reference(replacement_reference)
             .map_err(OwnerMutationAuditError::foundation)?
             .is_empty()
         {
@@ -1384,21 +1498,23 @@ fn build_correction_execution(
     }
 
     let fingerprint_payload = serde_json::json!({
-        "booksId": request.books.books_id,
-        "actor": request.books.actor,
+        "booksId": request.books.books_id.clone(),
+        "actor": request.books.actor.clone(),
         "recordKind": request.record_kind.as_str(),
-        "originalRecordId": original_record_id,
-        "reversalRecordId": reversal_record_id,
-        "reason": request.reason,
+        "originalRecordId": original_record_id.clone(),
+        "reversalRecordId": reversal_record_id.clone(),
+        "replacementRecordId": canonical_replacement_id.clone(),
+        "reason": reason.clone(),
         "original": original,
-        "reversal": reversal,
-        "replacement": replacement,
+        "reversal": &reversal,
+        "replacement": &replacement,
     });
-    let fingerprint_bytes = serde_json::to_vec(&fingerprint_payload)
-        .map_err(|_| OwnerMutationAuditError::invalid("correction preview could not be fingerprinted"))?;
+    let fingerprint_bytes = serde_json::to_vec(&fingerprint_payload).map_err(|_| {
+        OwnerMutationAuditError::invalid("correction preview could not be fingerprinted")
+    })?;
     let digest = core::bank_import::sha256_hex(&fingerprint_bytes);
-    let preview_fingerprint = format!("correction-preview-{digest}");
-    let correction_id = format!("correction-{digest}");
+    let preview_fingerprint = format!("{CORRECTION_PREVIEW_PREFIX}{digest}");
+    let correction_id = format!("{CORRECTION_ID_PREFIX}{digest}");
 
     let original_summary = OwnerCorrectionTransactionSummary {
         record_id: original_record_id.clone(),
@@ -1406,11 +1522,15 @@ fn build_correction_execution(
         description: original.description.clone(),
         amount_pence: transaction_total(original)?,
     };
-    let reversal_summary = summary_from_request(&reversal_record_id, &reversal)?;
-    let replacement_summary = match (&request.replacement, &replacement) {
-        (Some(spec), Some(posting)) => Some(summary_from_request(spec.record_id(), posting)?),
+    let reversal_summary = summary_from_posting(&reversal_record_id, &reversal)?;
+    let replacement_summary = match (&canonical_replacement_id, &replacement) {
+        (Some(record_id), Some(posting)) => Some(summary_from_posting(record_id, posting)?),
         (None, None) => None,
-        _ => return Err(OwnerMutationAuditError::invalid("replacement preview is inconsistent")),
+        _ => {
+            return Err(OwnerMutationAuditError::invalid(
+                "replacement preview is inconsistent",
+            ));
+        }
     };
     let write = OwnerCorrectionWrite {
         correction_id: correction_id.clone(),
@@ -1419,9 +1539,9 @@ fn build_correction_execution(
         original_transaction_id: original.id,
         reversal_record_id: reversal_record_id.clone(),
         reversal_request: reversal,
-        replacement_record_id: replacement_id.map(|id| id.as_str().to_string()),
+        replacement_record_id: canonical_replacement_id,
         replacement_request: replacement,
-        reason: request.reason.trim().to_string(),
+        reason,
     };
     Ok(CorrectionExecutionPlan {
         preview: OwnerCorrectionPreview {
@@ -1438,6 +1558,62 @@ fn build_correction_execution(
     })
 }
 
+fn prior_correction_replay(
+    request: &OwnerCorrectionConfirmRequest,
+    expected_correction_id: &str,
+) -> OwnerMutationAuditResult<Option<OwnerCorrectionReceipt>> {
+    let original_record_id = bounded_id(
+        &request.correction.original_record_id,
+        "original record id",
+    )?;
+    let reversal_record_id = bounded_id(
+        &request.correction.reversal_record_id,
+        "reversal record id",
+    )?;
+    let reason = request.correction.reason.trim();
+    if reason.is_empty() || reason.len() > 512 {
+        return Err(OwnerMutationAuditError::invalid(
+            "correction reason must be 1-512 non-whitespace characters",
+        ));
+    }
+    let replacement_id = replacement_record_id(
+        request.correction.replacement.as_ref(),
+        request.correction.record_kind,
+    )?;
+    let books = request.correction.books.open()?;
+    let Some(existing) = books
+        .correction_for_original(
+            request.correction.record_kind.as_str(),
+            &original_record_id,
+        )
+        .map_err(OwnerMutationAuditError::foundation)?
+    else {
+        return Ok(None);
+    };
+    let exact = existing.correction_id == expected_correction_id
+        && existing.record_kind == request.correction.record_kind.as_str()
+        && existing.original_record_id == original_record_id
+        && existing.reversal_record_id == reversal_record_id
+        && existing.replacement_record_id == replacement_id
+        && existing.reason == reason;
+    if !exact {
+        return Err(OwnerMutationAuditError::stale(
+            "the original record was already corrected by a different immutable correction",
+        ));
+    }
+    Ok(Some(OwnerCorrectionReceipt {
+        bridge_version: OWNER_MUTATION_AUDIT_VERSION,
+        correction_id: existing.correction_id,
+        record_kind: request.correction.record_kind,
+        original_record_id: existing.original_record_id,
+        reversal_record_id: existing.reversal_record_id,
+        replacement_record_id: existing.replacement_record_id,
+        applied: false,
+        already_applied: true,
+        requires_further_automatic_action: false,
+    }))
+}
+
 #[tauri::command]
 pub(crate) fn owner_correction_preview(
     request: OwnerCorrectionRequest,
@@ -1449,9 +1625,16 @@ pub(crate) fn owner_correction_preview(
 pub(crate) fn owner_correction_confirm(
     request: OwnerCorrectionConfirmRequest,
 ) -> OwnerMutationAuditResult<OwnerCorrectionReceipt> {
-    let supplied = bounded_id(&request.preview_fingerprint, "correction preview fingerprint")?;
+    let expected_correction_id =
+        correction_id_from_preview_fingerprint(&request.preview_fingerprint)?;
+    if let Some(replay) = prior_correction_replay(&request, &expected_correction_id)? {
+        return Ok(replay);
+    }
+
     let execution = build_correction_execution(&request.correction)?;
-    if supplied != execution.preview.preview_fingerprint {
+    if request.preview_fingerprint != execution.preview.preview_fingerprint
+        || expected_correction_id != execution.preview.correction_id
+    {
         return Err(OwnerMutationAuditError::stale(
             "correction preview changed; preview again before confirming",
         ));
@@ -1522,8 +1705,15 @@ mod tests {
         });
         assert!(serde_json::from_value::<OwnerReceiptSuggestRequest>(base.clone()).is_ok());
         for forbidden in [
-            "bankActivityId", "transactionId", "accountCode", "databasePath", "sourcePath",
-            "modelPath", "shellCommand", "taxTreatment", "businessUse",
+            "bankActivityId",
+            "transactionId",
+            "accountCode",
+            "databasePath",
+            "sourcePath",
+            "modelPath",
+            "shellCommand",
+            "taxTreatment",
+            "businessUse",
         ] {
             let mut bad = base.clone();
             bad.as_object_mut().unwrap().insert(
@@ -1545,7 +1735,13 @@ mod tests {
             "reason": "Correct mistake"
         });
         assert!(serde_json::from_value::<OwnerCorrectionRequest>(base.clone()).is_ok());
-        for forbidden in ["transactionId", "accountCode", "debit", "credit", "databasePath"] {
+        for forbidden in [
+            "transactionId",
+            "accountCode",
+            "debit",
+            "credit",
+            "databasePath",
+        ] {
             let mut bad = base.clone();
             bad.as_object_mut().unwrap().insert(
                 forbidden.to_string(),
@@ -1553,6 +1749,32 @@ mod tests {
             );
             assert!(serde_json::from_value::<OwnerCorrectionRequest>(bad).is_err());
         }
+    }
+
+    #[test]
+    fn correction_replacement_uses_camel_case_and_same_kind() {
+        let request = serde_json::json!({
+            "books": { "fileName": "safe.sqlite", "booksId": "safe-books", "actor": "owner" },
+            "recordKind": "moneyOut",
+            "originalRecordId": "expense-1",
+            "reversalRecordId": "reversal-1",
+            "replacement": {
+                "kind": "moneyOut",
+                "recordId": "expense-2",
+                "description": "Corrected expense",
+                "date": "2026-09-14",
+                "amountPence": 1234,
+                "category": "travel",
+                "businessUse": { "kind": "business" },
+                "settlement": "businessBank"
+            },
+            "reason": "Correct amount"
+        });
+        let parsed = serde_json::from_value::<OwnerCorrectionRequest>(request).unwrap();
+        assert_eq!(
+            replacement_record_id(parsed.replacement.as_ref(), parsed.record_kind).unwrap(),
+            Some("expense-2".to_string())
+        );
     }
 
     #[test]
@@ -1586,6 +1808,17 @@ mod tests {
         assert!(registry
             .resolve(&format!("manual-{MAX_RECEIPT_SUGGESTIONS}"))
             .is_ok());
+    }
+
+    #[test]
+    fn correction_preview_fingerprint_maps_to_stable_correction_id() {
+        let digest = "a".repeat(64);
+        let preview = format!("{CORRECTION_PREVIEW_PREFIX}{digest}");
+        assert_eq!(
+            correction_id_from_preview_fingerprint(&preview).unwrap(),
+            format!("{CORRECTION_ID_PREFIX}{digest}")
+        );
+        assert!(correction_id_from_preview_fingerprint("not-a-preview").is_err());
     }
 
     fn sample_extraction(document_id: &str) -> core::ocr::OcrExtraction {
