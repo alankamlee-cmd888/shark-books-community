@@ -130,9 +130,9 @@ fn confirm_match_for(
 }
 
 #[test]
-fn application_schema_v2_is_separate_from_beankeeper_schema_8() {
+fn application_schema_v3_is_separate_from_beankeeper_schema_8() {
     let (books, path) = test_books("schema");
-    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 2);
+    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 3);
     assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     let observed: i64 = books
         .db
@@ -143,7 +143,7 @@ fn application_schema_v2_is_separate_from_beankeeper_schema_8() {
             |row| row.get(0),
         )
         .expect("Shark application schema row");
-    assert_eq!(observed, 2);
+    assert_eq!(observed, 3);
     drop(books);
     remove_sqlite_artifacts(&path);
 }

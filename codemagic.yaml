@@ -224,3 +224,32 @@ workflows:
     artifacts:
       - artifacts/SBC7B1_BANK_MUTATION_MAC_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC7B1_BANK_MUTATION_MAC_SUMMARY.*
+
+  sbc7b1-documents-ocr-apple-gate:
+    name: SBC-7B1 Documents + Factual OCR — Apple Gate
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 26.4
+      cocoapods: default
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Ensure rustup is available
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup --version
+          cargo --version
+      - name: Run bounded SBC-7B1 Documents/OCR Mac/Apple gate
+        script: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc7b1_documents_ocr_codemagic.sh"
+          bash "$CM_BUILD_DIR/ci/run_sbc7b1_documents_ocr_codemagic.sh"
+    artifacts:
+      - artifacts/SBC7B1_DOCUMENTS_OCR_MAC_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC7B1_DOCUMENTS_OCR_MAC_SUMMARY.*
