@@ -176,14 +176,14 @@ impl MileageEntry {
             ),
             240,
         )?;
-        Ok(DraftCommercialLineProposal {
-            id: proposal_id,
-            source_kind: ProposalSourceKind::Mileage,
-            source_id: self.id.clone(),
-            project_id: self.project_id.clone(),
+        DraftCommercialLineProposal::new(
+            proposal_id,
+            ProposalSourceKind::Mileage,
+            self.id.clone(),
+            self.project_id.clone(),
             description,
-            amount: Money::from_minor(amount_minor),
-        })
+            Money::from_minor(amount_minor),
+        )
     }
 }
 
@@ -397,7 +397,7 @@ mod tests {
         )
         .unwrap();
         let proposal = entry.to_draft_commercial_line_proposal(id("proposal"), &rate).unwrap();
-        assert_eq!(proposal.amount.minor(), 563);
-        assert_eq!(proposal.source_kind, ProposalSourceKind::Mileage);
+        assert_eq!(proposal.amount().minor(), 563);
+        assert_eq!(proposal.source_kind(), ProposalSourceKind::Mileage);
     }
 }
