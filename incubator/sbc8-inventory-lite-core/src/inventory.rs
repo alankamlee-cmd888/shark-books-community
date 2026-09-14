@@ -121,6 +121,10 @@ impl StockMovementKind {
         matches!(self, Self::TransferIn | Self::TransferOut)
     }
 
+    pub fn is_stocktake(self) -> bool {
+        matches!(self, Self::StocktakeIncrease | Self::StocktakeDecrease)
+    }
+
     pub fn is_correction_adjustment(self) -> bool {
         matches!(self, Self::AdjustmentIncrease | Self::AdjustmentDecrease)
     }
@@ -144,6 +148,40 @@ pub struct StockMovement {
 impl StockMovement {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        id: EntityId,
+        item: &InventoryItem,
+        location_id: EntityId,
+        quantity: PositiveQuantity,
+        unit_id: EntityId,
+        kind: StockMovementKind,
+        occurred_minute: i64,
+        source_reference: BoundedText,
+        source_id: Option<EntityId>,
+        transfer_id: Option<EntityId>,
+        corrects_movement_id: Option<EntityId>,
+    ) -> DomainResult<Self> {
+        if kind.is_transfer() || kind.is_stocktake() {
+            return Err(DomainError::InvalidValue(
+                "transfer and stocktake movements require typed proposal workflows",
+            ));
+        }
+        Self::new_internal(
+            id,
+            item,
+            location_id,
+            quantity,
+            unit_id,
+            kind,
+            occurred_minute,
+            source_reference,
+            source_id,
+            transfer_id,
+            corrects_movement_id,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_internal(
         id: EntityId,
         item: &InventoryItem,
         location_id: EntityId,
@@ -450,7 +488,7 @@ mod tests {
             minute,
             text(movement_id),
             None,
-            if kind.is_transfer() { Some(id("transfer")) } else { None },
+            None,
             None,
         )
         .unwrap()
@@ -485,6 +523,39 @@ mod tests {
             None,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_transfer_and_stocktake_movement_construction_is_rejected() {
+        let item = item();
+        let transfer = StockMovement::new(
+            id("transfer-out"),
+            &item,
+            id("a"),
+            PositiveQuantity::new(2).unwrap(),
+            id("each"),
+            StockMovementKind::TransferOut,
+            1,
+            text("direct transfer"),
+            None,
+            Some(id("transfer")),
+            None,
+        );
+        let stocktake = StockMovement::new(
+            id("stocktake"),
+            &item,
+            id("a"),
+            PositiveQuantity::new(2).unwrap(),
+            id("each"),
+            StockMovementKind::StocktakeIncrease,
+            1,
+            text("direct stocktake"),
+            Some(id("count")),
+            None,
+            None,
+        );
+        assert!(transfer.is_err());
+        assert!(stocktake.is_err());
     }
 
     #[test]
