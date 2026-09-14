@@ -94,7 +94,7 @@ impl StocktakeObservation {
             delta.checked_neg().ok_or(DomainError::Overflow)?
         };
         let magnitude = u64::try_from(magnitude).map_err(|_| DomainError::Overflow)?;
-        let movement = StockMovement::new(
+        let movement = StockMovement::new_internal(
             movement_id,
             item,
             self.location_id.clone(),
