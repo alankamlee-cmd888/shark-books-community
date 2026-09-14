@@ -60,6 +60,7 @@ pub struct PaymentIntent {
     operation_id: EntityId,
     invoice_id: EntityId,
     amount: Money,
+    allocated: Money,
     state: PaymentIntentState,
     provider_object_id: Option<EntityId>,
 }
@@ -70,6 +71,7 @@ impl PaymentIntent {
             operation_id,
             invoice_id,
             amount: Money::positive(amount.minor())?,
+            allocated: Money::zero(),
             state: PaymentIntentState::Created,
             provider_object_id: None,
         })
@@ -86,6 +88,10 @@ impl PaymentIntent {
     #[must_use]
     pub const fn amount(&self) -> Money {
         self.amount
+    }
+    #[must_use]
+    pub const fn allocated_amount(&self) -> Money {
+        self.allocated
     }
     #[must_use]
     pub const fn state(&self) -> PaymentIntentState {
@@ -148,7 +154,11 @@ impl PaymentIntent {
         Ok(())
     }
 
-    pub fn allocate_to_invoice(&self, invoice: &mut Invoice, amount: Money) -> DomainResult<()> {
+    pub fn allocate_to_invoice(
+        &mut self,
+        invoice: &mut Invoice,
+        amount: Money,
+    ) -> DomainResult<()> {
         if self.state != PaymentIntentState::Succeeded {
             return Err(DomainError::InvalidTransition(
                 "only a verified succeeded payment can be allocated".into(),
@@ -159,12 +169,16 @@ impl PaymentIntent {
                 "payment intent invoice identity does not match allocation target".into(),
             ));
         }
-        if amount > self.amount {
+        let amount = Money::positive(amount.minor())?;
+        let next_allocated = self.allocated.checked_add(amount)?;
+        if next_allocated > self.amount {
             return Err(DomainError::Conflict(
-                "invoice allocation exceeds payment intent amount".into(),
+                "cumulative invoice allocations exceed payment intent amount".into(),
             ));
         }
-        invoice.apply_payment(amount)
+        invoice.apply_payment(amount)?;
+        self.allocated = next_allocated;
+        Ok(())
     }
 }
 
@@ -255,7 +269,7 @@ mod tests {
     use crate::identity::CommercialParty;
     use crate::primitives::{CommercialNumber, Quantity};
 
-    fn invoice() -> Invoice {
+    fn invoice(total: i64) -> Invoice {
         let customer = CommercialParty::new(
             EntityId::new("customer-1").unwrap(),
             "Customer",
@@ -272,7 +286,7 @@ mod tests {
                     EntityId::new("line-1").unwrap(),
                     "Service",
                     Quantity::positive(1).unwrap(),
-                    Money::positive(10_000).unwrap(),
+                    Money::positive(total).unwrap(),
                 )
                 .unwrap(),
             )
@@ -283,11 +297,11 @@ mod tests {
         invoice
     }
 
-    fn success_event() -> PaymentEvent {
+    fn success_event(amount: i64) -> PaymentEvent {
         PaymentEvent::new(
             EntityId::new("event-1").unwrap(),
             EntityId::new("operation-1").unwrap(),
-            Money::positive(10_000).unwrap(),
+            Money::positive(amount).unwrap(),
             PaymentEventKind::Succeeded,
             Some(EntityId::new("provider-object-1").unwrap()),
         )
@@ -296,7 +310,7 @@ mod tests {
 
     #[test]
     fn provider_event_registry_is_idempotent_and_conflict_closed() {
-        let event = success_event();
+        let event = success_event(10_000);
         let mut registry = PaymentEventRegistry::default();
         assert_eq!(registry.record(event.clone()).unwrap(), EventRecordOutcome::Recorded);
         assert_eq!(
@@ -317,14 +331,14 @@ mod tests {
 
     #[test]
     fn verified_success_does_not_allocate_invoice_without_explicit_action() {
-        let mut invoice = invoice();
+        let mut invoice = invoice(10_000);
         let mut intent = PaymentIntent::new(
             EntityId::new("operation-1").unwrap(),
             invoice.id().clone(),
             Money::positive(10_000).unwrap(),
         )
         .unwrap();
-        intent.apply_verified_event(&success_event()).unwrap();
+        intent.apply_verified_event(&success_event(10_000)).unwrap();
         assert_eq!(intent.state(), PaymentIntentState::Succeeded);
         assert_eq!(invoice.state(), InvoiceState::Issued);
         assert_eq!(invoice.outstanding().unwrap().minor(), 10_000);
@@ -332,6 +346,27 @@ mod tests {
             .allocate_to_invoice(&mut invoice, Money::positive(10_000).unwrap())
             .unwrap();
         assert_eq!(invoice.state(), InvoiceState::Paid);
+        assert_eq!(intent.allocated_amount().minor(), 10_000);
+    }
+
+    #[test]
+    fn cumulative_payment_allocation_cannot_exceed_intent_amount() {
+        let mut invoice = invoice(15_000);
+        let mut intent = PaymentIntent::new(
+            EntityId::new("operation-1").unwrap(),
+            invoice.id().clone(),
+            Money::positive(10_000).unwrap(),
+        )
+        .unwrap();
+        intent.apply_verified_event(&success_event(10_000)).unwrap();
+        intent
+            .allocate_to_invoice(&mut invoice, Money::positive(6_000).unwrap())
+            .unwrap();
+        assert!(intent
+            .allocate_to_invoice(&mut invoice, Money::positive(5_000).unwrap())
+            .is_err());
+        assert_eq!(intent.allocated_amount().minor(), 6_000);
+        assert_eq!(invoice.outstanding().unwrap().minor(), 9_000);
     }
 
     #[test]
