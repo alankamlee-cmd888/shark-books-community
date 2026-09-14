@@ -277,7 +277,6 @@ workflows:
       - name: Run bounded SBC-7B1 Mutation + Audit Mac/Apple gate
         script: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          chmod +x "$CM_BUILD_DIR/ci/run_sbc7b1_mutation_audit_codemagic.sh"
           bash "$CM_BUILD_DIR/ci/run_sbc7b1_mutation_audit_codemagic.sh"
     artifacts:
       - artifacts/SBC7B1_MUTATION_AUDIT_MAC_CODEMAGIC_RESULT_*.zip

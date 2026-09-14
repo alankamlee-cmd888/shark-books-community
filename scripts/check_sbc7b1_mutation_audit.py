@@ -197,8 +197,10 @@ def static_gate(repo: Path) -> dict[str, object]:
         "pub fn correction_for_original",
         "pub fn apply_owner_correction",
         "pub fn correction_history",
+        "confirmed_receipt_decision_is_idempotent_non_posting_and_does_not_match_bank",
         "rejected_receipt_decision_is_idempotent_and_non_posting",
-        "correction_applies_reversal_and_replacement_atomically_and_is_idempotent",
+        "correction_applies_reversal_and_replacement_atomically_is_idempotent_and_rejects_conflicting_replay",
+        "correction_history_finds_chain_after_more_than_100_unrelated_rows",
         "failed_replacement_rolls_back_reversal_and_history",
     ]:
         require(anchor in persistence, f"Mutation + Audit persistence anchor present: {anchor}")
@@ -220,6 +222,14 @@ def static_gate(repo: Path) -> dict[str, object]:
         "shark_owner_correction_apply" in persistence,
         "reversal + optional replacement + history use one Shark savepoint",
     )
+    require(
+        "transaction_matches_post_request" in persistence,
+        "foundation idempotent correction replay is bound to persisted posting content",
+    )
+    require(
+        "ORDER BY id ASC LIMIT 100" not in persistence,
+        "correction history discovers the requested chain before applying the result bound",
+    )
 
     owner = text(repo, "workspace/shark-tauri-spike/src/owner_mutation_audit.rs")
     for anchor in [
@@ -240,6 +250,9 @@ def static_gate(repo: Path) -> dict[str, object]:
         "receipt_requests_reject_raw_bank_path_and_accounting_authority",
         "correction_request_rejects_raw_transaction_and_posting_authority",
         "receipt_registry_is_bounded_and_oldest_entry_expires",
+        "transaction_matches_posting",
+        "correction_replay_content_comparison_detects_changed_replacement",
+        "persisted correction replacement no longer matches the confirmed preview",
     ]:
         require(anchor in owner, f"owner Mutation + Audit bridge anchor present: {anchor}")
     runtime_owner = owner.split("#[cfg(test)]", 1)[0].lower()
@@ -252,6 +265,12 @@ def static_gate(repo: Path) -> dict[str, object]:
     require("requires_further_automatic_action: false" in owner, "receipt/correction confirmations stop after explicit owner action")
     require("matched_transaction_id.is_some()" in owner, "receipt confirmation rejects bank activity that changed after review")
     require("preview_fingerprint" in owner, "correction confirm is bound to a deterministic preview fingerprint")
+
+    codemagic = text(repo, "codemagic.yaml")
+    require(
+        'chmod +x "$CM_BUILD_DIR/ci/run_sbc7b1_mutation_audit_codemagic.sh"' not in codemagic,
+        "Mutation + Audit Codemagic workflow does not self-dirty the tracked runner",
+    )
 
     shell = text(repo, "workspace/shark-tauri-spike/src/lib.rs")
     build_rs = text(repo, "workspace/shark-tauri-spike/build.rs")

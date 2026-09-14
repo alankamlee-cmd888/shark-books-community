@@ -1292,6 +1292,34 @@ fn posting_total(request: &PostTransactionRequest) -> OwnerMutationAuditResult<i
     i64::try_from(total).map_err(|_| OwnerMutationAuditError::invalid("posting total overflow"))
 }
 
+fn transaction_matches_posting(
+    transaction: &TransactionView,
+    request: &PostTransactionRequest,
+) -> bool {
+    if transaction.description != request.description
+        || transaction.reference != request.reference
+        || transaction.currency != request.currency_code
+        || transaction.date != request.date
+        || transaction.entries.len() != request.lines.len()
+    {
+        return false;
+    }
+
+    transaction
+        .entries
+        .iter()
+        .zip(&request.lines)
+        .all(|(entry, line)| {
+            let expected_direction = match &line.direction {
+                Direction::Debit => "debit",
+                Direction::Credit => "credit",
+            };
+            entry.account_code == line.account_code
+                && entry.direction == expected_direction
+                && entry.amount_minor == line.amount_minor
+        })
+}
+
 fn reversal_request(
     original: &TransactionView,
     record_kind: OwnerCorrectionRecordKind,
@@ -1590,17 +1618,74 @@ fn prior_correction_replay(
     else {
         return Ok(None);
     };
-    let exact = existing.correction_id == expected_correction_id
+    let exact_metadata = existing.correction_id == expected_correction_id
         && existing.record_kind == request.correction.record_kind.as_str()
         && existing.original_record_id == original_record_id
         && existing.reversal_record_id == reversal_record_id
         && existing.replacement_record_id == replacement_id
-        && existing.reason == reason;
-    if !exact {
+        && existing.reason == reason
+        && existing.corrected_by == request.correction.books.actor.trim();
+    if !exact_metadata {
         return Err(OwnerMutationAuditError::stale(
             "the original record was already corrected by a different immutable correction",
         ));
     }
+
+    let original = books
+        .transaction(existing.original_transaction_id)
+        .map_err(OwnerMutationAuditError::foundation)?;
+    let expected_original_reference = format!(
+        "sbc7b1:{}:{}",
+        request.correction.record_kind.as_str(),
+        original_record_id
+    );
+    if original.reference.as_deref() != Some(expected_original_reference.as_str()) {
+        return Err(OwnerMutationAuditError::stale(
+            "persisted correction original no longer matches its immutable owner identity",
+        ));
+    }
+
+    let expected_reversal =
+        reversal_request(&original, request.correction.record_kind, &reversal_record_id)?;
+    let persisted_reversal = books
+        .transaction(existing.reversal_transaction_id)
+        .map_err(OwnerMutationAuditError::foundation)?;
+    if !transaction_matches_posting(&persisted_reversal, &expected_reversal) {
+        return Err(OwnerMutationAuditError::stale(
+            "persisted correction reversal no longer matches the confirmed preview",
+        ));
+    }
+
+    let expected_replacement = request
+        .correction
+        .replacement
+        .as_ref()
+        .map(|replacement| replacement_request(replacement, request.correction.record_kind))
+        .transpose()?
+        .map(|(_, posting)| posting);
+
+    match (
+        expected_replacement.as_ref(),
+        existing.replacement_transaction_id,
+    ) {
+        (None, None) => {}
+        (Some(expected), Some(transaction_id)) => {
+            let persisted = books
+                .transaction(transaction_id)
+                .map_err(OwnerMutationAuditError::foundation)?;
+            if !transaction_matches_posting(&persisted, expected) {
+                return Err(OwnerMutationAuditError::stale(
+                    "persisted correction replacement no longer matches the confirmed preview",
+                ));
+            }
+        }
+        _ => {
+            return Err(OwnerMutationAuditError::stale(
+                "persisted correction replacement shape conflicts with the confirmed preview",
+            ));
+        }
+    }
+
     Ok(Some(OwnerCorrectionReceipt {
         bridge_version: OWNER_MUTATION_AUDIT_VERSION,
         correction_id: existing.correction_id,
@@ -1819,6 +1904,61 @@ mod tests {
             format!("{CORRECTION_ID_PREFIX}{digest}")
         );
         assert!(correction_id_from_preview_fingerprint("not-a-preview").is_err());
+    }
+
+    #[test]
+    fn correction_replay_content_comparison_detects_changed_replacement() {
+        let request = PostTransactionRequest {
+            description: "Replacement".to_string(),
+            date: "2026-09-14".to_string(),
+            currency_code: "GBP".to_string(),
+            reference: Some("sbc7b1:moneyIn:replacement-1".to_string()),
+            metadata: None,
+            lines: vec![
+                PostingLine {
+                    account_code: "1000".to_string(),
+                    direction: Direction::Debit,
+                    amount_minor: 1_000,
+                    memo: None,
+                },
+                PostingLine {
+                    account_code: "4000".to_string(),
+                    direction: Direction::Credit,
+                    amount_minor: 1_000,
+                    memo: None,
+                },
+            ],
+        };
+
+        let transaction = TransactionView {
+            id: 1,
+            description: request.description.clone(),
+            reference: request.reference.clone(),
+            currency: request.currency_code.clone(),
+            date: request.date.clone(),
+            entries: vec![
+                shark_foundation::EntryView {
+                    id: 1,
+                    account_code: "1000".to_string(),
+                    direction: "debit".to_string(),
+                    amount_minor: 1_000,
+                    status: "uncleared".to_string(),
+                },
+                shark_foundation::EntryView {
+                    id: 2,
+                    account_code: "4000".to_string(),
+                    direction: "credit".to_string(),
+                    amount_minor: 1_000,
+                    status: "uncleared".to_string(),
+                },
+            ],
+        };
+
+        assert!(transaction_matches_posting(&transaction, &request));
+
+        let mut changed = request.clone();
+        changed.description = "Tampered replacement".to_string();
+        assert!(!transaction_matches_posting(&transaction, &changed));
     }
 
     fn sample_extraction(document_id: &str) -> core::ocr::OcrExtraction {

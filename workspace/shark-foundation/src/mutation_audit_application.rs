@@ -211,6 +211,34 @@ fn exact_correction_repeat(existing: &OwnerCorrectionView, write: &OwnerCorrecti
         && existing.reason == write.reason
 }
 
+fn transaction_matches_post_request(
+    transaction: &TransactionView,
+    request: &PostTransactionRequest,
+) -> bool {
+    if transaction.description != request.description
+        || transaction.reference != request.reference
+        || transaction.currency != request.currency_code
+        || transaction.date != request.date
+        || transaction.entries.len() != request.lines.len()
+    {
+        return false;
+    }
+
+    transaction
+        .entries
+        .iter()
+        .zip(&request.lines)
+        .all(|(entry, line)| {
+            let expected_direction = match &line.direction {
+                Direction::Debit => "debit",
+                Direction::Credit => "credit",
+            };
+            entry.account_code == line.account_code
+                && entry.direction == expected_direction
+                && entry.amount_minor == line.amount_minor
+        })
+}
+
 fn validate_correction_request(write: &OwnerCorrectionWrite) -> FoundationResult<()> {
     nonblank(&write.correction_id, "correction id", 128)?;
     nonblank(&write.original_record_id, "original record id", 128)?;
@@ -465,7 +493,37 @@ impl Books {
         validate_correction_request(write)?;
 
         if let Some(existing) = self.correction_by_id(&write.correction_id)? {
-            if exact_correction_repeat(&existing, write) {
+            if exact_correction_repeat(&existing, write)
+                && existing.corrected_by == self.actor.name()
+            {
+                let persisted_reversal = self.transaction(existing.reversal_transaction_id)?;
+                if !transaction_matches_post_request(
+                    &persisted_reversal,
+                    &write.reversal_request,
+                ) {
+                    return Err(validation(
+                        "correction replay conflicts with persisted immutable reversal content",
+                    ));
+                }
+
+                let replacement_matches = match (
+                    existing.replacement_transaction_id,
+                    write.replacement_request.as_ref(),
+                ) {
+                    (None, None) => true,
+                    (Some(transaction_id), Some(request)) => {
+                        let persisted = self.transaction(transaction_id)?;
+                        transaction_matches_post_request(&persisted, request)
+                    }
+                    _ => false,
+                };
+
+                if !replacement_matches {
+                    return Err(validation(
+                        "correction replay conflicts with persisted immutable replacement content",
+                    ));
+                }
+
                 return Ok(OwnerCorrectionPersistOutcome::AlreadyApplied(existing));
             }
             return Err(validation("correction id already exists with conflicting immutable content"));
@@ -588,7 +646,7 @@ impl Books {
                         replacement_transaction_id, reason, corrected_by, corrected_at \
                  FROM shark_owner_correction \
                  WHERE company_slug = ?1 AND record_kind = ?2 \
-                 ORDER BY id ASC LIMIT 100",
+                 ORDER BY id ASC",
             )
             .map_err(sqlite_error)?;
         let mut rows = stmt
@@ -690,6 +748,89 @@ mod tests {
         }
     }
 
+    fn receipt_activity(locator: &str, raw_marker: char, amount: i64) -> BankActivityWrite {
+        let raw_record_sha256 = raw_marker.to_string().repeat(64);
+        BankActivityWrite {
+            source_account_id: "bank-main".to_string(),
+            institution_account_id: None,
+            source_format: "csv".to_string(),
+            source_file_sha256: "a".repeat(64),
+            source_locator: locator.to_string(),
+            posted_date: "2026-09-14".to_string(),
+            value_date: None,
+            signed_amount_minor: amount,
+            currency_code: "GBP".to_string(),
+            description: "Example supplier".to_string(),
+            payee: Some("Example supplier".to_string()),
+            reference: Some("RECEIPT-1".to_string()),
+            external_transaction_id: None,
+            raw_record_sha256: raw_record_sha256.clone(),
+            strong_identity_key: None,
+            provenance_kind: "csv".to_string(),
+            provenance_source_reference: Some(locator.to_string()),
+            provenance_fingerprint: Some(format!("sha256:{raw_record_sha256}")),
+            provenance_label: Some("Test bank".to_string()),
+        }
+    }
+
+    #[test]
+    fn confirmed_receipt_decision_is_idempotent_non_posting_and_does_not_match_bank() {
+        let path = temp_db_path("receipt-confirm");
+        let books =
+            Books::create_plain_for_test(&path, "test-books", "Test Books", "owner").unwrap();
+
+        let document = DocumentWrite {
+            document_id: format!("doc-{}", "22".repeat(32)),
+            storage_root_id: "root-1".into(),
+            relative_path: format!("documents/{}/receipt.png", "22".repeat(32)),
+            original_filename: "receipt.png".into(),
+            media_type: Some("image/png".into()),
+            sha256: "22".repeat(32),
+            byte_len: 12,
+        };
+        books.register_document(&document).unwrap();
+
+        let activity = receipt_activity("csv:row:2", 'b', -1_234);
+        let imported = books
+            .persist_bank_activity_batch(&[activity.clone()])
+            .unwrap();
+        let activity_id = imported[0].activity_id;
+
+        let before = books.count_transactions().unwrap();
+        let write = ReceiptBankDecisionWrite {
+            suggestion_id: "suggestion-confirm-1".into(),
+            document_id: document.document_id.clone(),
+            decision_kind: "confirmed".into(),
+            bank_activity_id: Some(activity_id),
+            source_account_id: Some(activity.source_account_id.clone()),
+            source_file_sha256: Some(activity.source_file_sha256.clone()),
+            source_locator: Some(activity.source_locator.clone()),
+            raw_record_sha256: Some(activity.raw_record_sha256.clone()),
+        };
+
+        assert!(matches!(
+            books.persist_receipt_bank_decision(&write).unwrap(),
+            ReceiptBankDecisionPersistOutcome::Recorded(_)
+        ));
+        assert!(matches!(
+            books.persist_receipt_bank_decision(&write).unwrap(),
+            ReceiptBankDecisionPersistOutcome::AlreadyRecorded(_)
+        ));
+
+        assert_eq!(before, books.count_transactions().unwrap());
+        let persisted_activity = books.bank_activity(activity_id).unwrap();
+        assert!(persisted_activity.matched_transaction_id.is_none());
+        assert!(persisted_activity.matched_entry_id.is_none());
+        assert!(persisted_activity.clearance_state.is_none());
+
+        let mut conflicting = write.clone();
+        conflicting.raw_record_sha256 = Some("c".repeat(64));
+        assert!(books.persist_receipt_bank_decision(&conflicting).is_err());
+
+        drop(books);
+        let _ = fs::remove_file(path);
+    }
+
     #[test]
     fn rejected_receipt_decision_is_idempotent_and_non_posting() {
         let path = temp_db_path("receipt-reject");
@@ -732,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn correction_applies_reversal_and_replacement_atomically_and_is_idempotent() {
+    fn correction_applies_reversal_and_replacement_atomically_is_idempotent_and_rejects_conflicting_replay() {
         let path = temp_db_path("correction");
         let books = Books::create_plain_for_test(&path, "test-books", "Test Books", "owner").unwrap();
         books.create_account("1000", "Bank", "asset").unwrap();
@@ -772,8 +913,94 @@ mod tests {
         let repeat = books.apply_owner_correction(&write).unwrap();
         assert!(matches!(repeat, OwnerCorrectionPersistOutcome::AlreadyApplied(_)));
         assert_eq!(books.count_transactions().unwrap(), before + 2);
+
+        let mut conflicting = write.clone();
+        conflicting
+            .replacement_request
+            .as_mut()
+            .expect("replacement exists")
+            .description = "Tampered replacement".to_string();
+        assert!(
+            books.apply_owner_correction(&conflicting).is_err(),
+            "changed replacement content must not be accepted as idempotent replay"
+        );
+        assert_eq!(books.count_transactions().unwrap(), before + 2);
+
         assert_eq!(books.correction_history("moneyIn", "original-1", 10).unwrap().len(), 1);
         assert!(books.correction_for_original("moneyIn", "original-1").unwrap().is_some());
+        drop(books);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn correction_history_finds_chain_after_more_than_100_unrelated_rows() {
+        let path = temp_db_path("history-beyond-100");
+        let books =
+            Books::create_plain_for_test(&path, "test-books", "Test Books", "owner").unwrap();
+        books.create_account("1000", "Bank", "asset").unwrap();
+        books.create_account("4000", "Sales", "revenue").unwrap();
+
+        let seed = two_line_request(
+            "sbc7b1:moneyIn:history-seed",
+            "History seed",
+            "1000",
+            "4000",
+        );
+        let transaction_id = match books.post(&seed).unwrap() {
+            PostOutcome::Created(id) => id,
+            PostOutcome::Skipped(_) => unreachable!(),
+        };
+
+        for index in 0..101 {
+            let correction_id = format!("unrelated-correction-{index}");
+            let original_record_id = format!("unrelated-original-{index}");
+            let reversal_record_id = format!("unrelated-reversal-{index}");
+            books
+                .db
+                .conn()
+                .execute(
+                    "INSERT INTO shark_owner_correction(
+                        company_slug, correction_id, record_kind,
+                        original_record_id, original_transaction_id,
+                        reversal_record_id, reversal_transaction_id,
+                        reason, corrected_by
+                     ) VALUES(?1, ?2, 'moneyIn', ?3, ?4, ?5, ?6, ?7, 'owner')",
+                    (
+                        &books.company_slug,
+                        correction_id,
+                        original_record_id,
+                        transaction_id,
+                        reversal_record_id,
+                        transaction_id,
+                        "Unrelated history row",
+                    ),
+                )
+                .unwrap();
+        }
+
+        books
+            .db
+            .conn()
+            .execute(
+                "INSERT INTO shark_owner_correction(
+                    company_slug, correction_id, record_kind,
+                    original_record_id, original_transaction_id,
+                    reversal_record_id, reversal_transaction_id,
+                    reason, corrected_by
+                 ) VALUES(?1, 'target-correction', 'moneyIn',
+                          'target-original', ?2,
+                          'target-reversal', ?3,
+                          'Target correction', 'owner')",
+                (&books.company_slug, transaction_id, transaction_id),
+            )
+            .unwrap();
+
+        let history = books
+            .correction_history("moneyIn", "target-original", 10)
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].correction_id, "target-correction");
+
         drop(books);
         let _ = fs::remove_file(path);
     }
