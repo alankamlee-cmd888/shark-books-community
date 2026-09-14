@@ -12,8 +12,8 @@ pub enum DistanceUnit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Distance {
-    pub units: u64,
-    pub unit: DistanceUnit,
+    units: u64,
+    unit: DistanceUnit,
 }
 
 impl Distance {
@@ -22,6 +22,14 @@ impl Distance {
             return Err(DomainError::InvalidValue("distance must be positive"));
         }
         Ok(Self { units, unit })
+    }
+
+    pub fn units(self) -> u64 {
+        self.units
+    }
+
+    pub fn unit(self) -> DistanceUnit {
+        self.unit
     }
 }
 
@@ -34,17 +42,17 @@ pub enum MileageSourceMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MileageEntry {
-    pub id: EntityId,
-    pub date: CivilDate,
-    pub from_text: BoundedText,
-    pub to_text: BoundedText,
-    pub business_purpose: BoundedText,
-    pub distance: Distance,
-    pub source_method: MileageSourceMethod,
-    pub project_id: Option<EntityId>,
-    pub customer_id: Option<EntityId>,
-    pub odometer_start: Option<u64>,
-    pub odometer_end: Option<u64>,
+    id: EntityId,
+    date: CivilDate,
+    from_text: BoundedText,
+    to_text: BoundedText,
+    business_purpose: BoundedText,
+    distance: Distance,
+    source_method: MileageSourceMethod,
+    project_id: Option<EntityId>,
+    customer_id: Option<EntityId>,
+    odometer_start: Option<u64>,
+    odometer_end: Option<u64>,
 }
 
 impl MileageEntry {
@@ -70,7 +78,7 @@ impl MileageEntry {
                     return Err(DomainError::InconsistentEvidence("odometer end must exceed start"));
                 }
                 let delta = end.checked_sub(start).ok_or(DomainError::Overflow)?;
-                if delta != distance.units {
+                if delta != distance.units() {
                     return Err(DomainError::InconsistentEvidence("odometer delta must equal recorded distance units"));
                 }
             }
@@ -96,16 +104,60 @@ impl MileageEntry {
         })
     }
 
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn date(&self) -> CivilDate {
+        self.date
+    }
+
+    pub fn from_text(&self) -> &BoundedText {
+        &self.from_text
+    }
+
+    pub fn to_text(&self) -> &BoundedText {
+        &self.to_text
+    }
+
+    pub fn business_purpose(&self) -> &BoundedText {
+        &self.business_purpose
+    }
+
+    pub fn distance(&self) -> Distance {
+        self.distance
+    }
+
+    pub fn source_method(&self) -> MileageSourceMethod {
+        self.source_method
+    }
+
+    pub fn project_id(&self) -> Option<&EntityId> {
+        self.project_id.as_ref()
+    }
+
+    pub fn customer_id(&self) -> Option<&EntityId> {
+        self.customer_id.as_ref()
+    }
+
+    pub fn odometer_start(&self) -> Option<u64> {
+        self.odometer_start
+    }
+
+    pub fn odometer_end(&self) -> Option<u64> {
+        self.odometer_end
+    }
+
     pub fn to_draft_commercial_line_proposal(
         &self,
         proposal_id: EntityId,
         rate: &MileageRate,
     ) -> DomainResult<DraftCommercialLineProposal> {
-        if !rate.applies_to(self.date, self.distance.unit) {
+        if !rate.applies_to(self.date, self.distance.unit()) {
             return Err(DomainError::InvalidValue("mileage rate does not apply to entry"));
         }
         let numerator = i128::from(rate.minor_units_per_1000_units.minor())
-            .checked_mul(i128::from(self.distance.units))
+            .checked_mul(i128::from(self.distance.units()))
             .ok_or(DomainError::Overflow)?;
         let whole = numerator / 1000;
         let remainder = numerator % 1000;
@@ -137,12 +189,12 @@ impl MileageEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MileageRate {
-    pub id: EntityId,
-    pub effective_from: CivilDate,
-    pub effective_to: Option<CivilDate>,
-    pub unit: DistanceUnit,
-    pub minor_units_per_1000_units: Money,
-    pub source_reference: BoundedText,
+    id: EntityId,
+    effective_from: CivilDate,
+    effective_to: Option<CivilDate>,
+    unit: DistanceUnit,
+    minor_units_per_1000_units: Money,
+    source_reference: BoundedText,
 }
 
 impl MileageRate {
@@ -170,6 +222,30 @@ impl MileageRate {
             minor_units_per_1000_units,
             source_reference,
         })
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn effective_from(&self) -> CivilDate {
+        self.effective_from
+    }
+
+    pub fn effective_to(&self) -> Option<CivilDate> {
+        self.effective_to
+    }
+
+    pub fn unit(&self) -> DistanceUnit {
+        self.unit
+    }
+
+    pub fn minor_units_per_1000_units(&self) -> Money {
+        self.minor_units_per_1000_units
+    }
+
+    pub fn source_reference(&self) -> &BoundedText {
+        &self.source_reference
     }
 
     pub fn applies_to(&self, date: CivilDate, unit: DistanceUnit) -> bool {
@@ -220,7 +296,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(entry.source_method, MileageSourceMethod::Manual);
+        assert_eq!(entry.source_method(), MileageSourceMethod::Manual);
+        assert_eq!(entry.distance().units(), 12_500);
     }
 
     #[test]
@@ -265,7 +342,33 @@ mod tests {
         let selected = select_rate(&rates, CivilDate::new(2026, 9, 14).unwrap(), DistanceUnit::MilliMile)
             .unwrap()
             .unwrap();
-        assert_eq!(selected.id, id("r2"));
+        assert_eq!(selected.id(), &id("r2"));
+        assert_eq!(selected.source_reference().as_str(), "policy-source-v2");
+    }
+
+    #[test]
+    fn overlapping_effective_rates_fail_closed() {
+        let rates = vec![
+            MileageRate::new(
+                id("r1"),
+                CivilDate::new(2026, 1, 1).unwrap(),
+                None,
+                DistanceUnit::MilliMile,
+                Money::nonnegative(45).unwrap(),
+                text("policy-a"),
+            )
+            .unwrap(),
+            MileageRate::new(
+                id("r2"),
+                CivilDate::new(2026, 7, 1).unwrap(),
+                None,
+                DistanceUnit::MilliMile,
+                Money::nonnegative(50).unwrap(),
+                text("policy-b"),
+            )
+            .unwrap(),
+        ];
+        assert!(select_rate(&rates, CivilDate::new(2026, 9, 14).unwrap(), DistanceUnit::MilliMile).is_err());
     }
 
     #[test]
