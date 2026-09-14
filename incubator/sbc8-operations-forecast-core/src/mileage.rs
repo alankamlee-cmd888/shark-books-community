@@ -42,6 +42,14 @@ pub enum MileageSourceMethod {
     RouteDerived,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MileageEntryState {
+    Draft,
+    Approved,
+    BilledProposal,
+    Cancelled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MileageEntry {
     id: EntityId,
@@ -51,10 +59,12 @@ pub struct MileageEntry {
     business_purpose: BoundedText,
     distance: Distance,
     source_method: MileageSourceMethod,
+    billable: bool,
     project_id: Option<EntityId>,
     customer_id: Option<EntityId>,
     odometer_start: Option<u64>,
     odometer_end: Option<u64>,
+    state: MileageEntryState,
 }
 
 impl MileageEntry {
@@ -67,6 +77,7 @@ impl MileageEntry {
         business_purpose: BoundedText,
         distance: Distance,
         source_method: MileageSourceMethod,
+        billable: bool,
         project_id: Option<EntityId>,
         customer_id: Option<EntityId>,
         odometer_start: Option<u64>,
@@ -99,10 +110,12 @@ impl MileageEntry {
             business_purpose,
             distance,
             source_method,
+            billable,
             project_id,
             customer_id,
             odometer_start,
             odometer_end,
+            state: MileageEntryState::Draft,
         })
     }
 
@@ -134,6 +147,10 @@ impl MileageEntry {
         self.source_method
     }
 
+    pub fn billable(&self) -> bool {
+        self.billable
+    }
+
     pub fn project_id(&self) -> Option<&EntityId> {
         self.project_id.as_ref()
     }
@@ -150,11 +167,37 @@ impl MileageEntry {
         self.odometer_end
     }
 
+    pub fn state(&self) -> MileageEntryState {
+        self.state
+    }
+
+    pub fn approve(&mut self) -> DomainResult<()> {
+        if self.state != MileageEntryState::Draft {
+            return Err(DomainError::InvalidState("only draft mileage may be approved"));
+        }
+        self.state = MileageEntryState::Approved;
+        Ok(())
+    }
+
+    pub fn cancel(&mut self) -> DomainResult<()> {
+        if self.state != MileageEntryState::Draft {
+            return Err(DomainError::InvalidState("only draft mileage may be cancelled"));
+        }
+        self.state = MileageEntryState::Cancelled;
+        Ok(())
+    }
+
     pub fn to_draft_commercial_line_proposal(
-        &self,
+        &mut self,
         proposal_id: EntityId,
         rate: &MileageRate,
     ) -> DomainResult<DraftCommercialLineProposal> {
+        if self.state != MileageEntryState::Approved {
+            return Err(DomainError::InvalidState("only approved mileage may create a draft-line proposal"));
+        }
+        if !self.billable {
+            return Err(DomainError::InvalidValue("non-billable mileage cannot create a billing proposal"));
+        }
         if !rate.applies_to(self.date, self.distance.unit()) {
             return Err(DomainError::InvalidValue("mileage rate does not apply to entry"));
         }
@@ -178,14 +221,16 @@ impl MileageEntry {
             ),
             240,
         )?;
-        DraftCommercialLineProposal::new(
+        let proposal = DraftCommercialLineProposal::new(
             proposal_id,
             ProposalSourceKind::Mileage,
             self.id.clone(),
             self.project_id.clone(),
             description,
             Money::from_minor(amount_minor),
-        )
+        )?;
+        self.state = MileageEntryState::BilledProposal;
+        Ok(proposal)
     }
 }
 
@@ -289,24 +334,42 @@ mod tests {
         BoundedText::new(value, 200).unwrap()
     }
 
-    #[test]
-    fn manual_mileage_requires_no_route_or_location_dependency() {
-        let entry = MileageEntry::new(
-            id("m1"),
+    fn manual_entry(id_value: &str, billable: bool) -> MileageEntry {
+        MileageEntry::new(
+            id(id_value),
             CivilDate::new(2026, 9, 14).unwrap(),
             text("Office"),
             text("Client"),
             text("Business meeting"),
             Distance::positive(12_500, DistanceUnit::MilliMile).unwrap(),
             MileageSourceMethod::Manual,
+            billable,
             Some(id("project")),
             None,
             None,
             None,
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn billing_rate() -> MileageRate {
+        MileageRate::new(
+            id("rate"),
+            CivilDate::new(2026, 1, 1).unwrap(),
+            None,
+            DistanceUnit::MilliMile,
+            Money::nonnegative(45).unwrap(),
+            text("explicit-billing-policy"),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn manual_mileage_requires_no_route_or_location_dependency() {
+        let entry = manual_entry("m1", false);
         assert_eq!(entry.source_method(), MileageSourceMethod::Manual);
         assert_eq!(entry.distance().units(), 12_500);
+        assert_eq!(entry.state(), MileageEntryState::Draft);
     }
 
     #[test]
@@ -319,6 +382,7 @@ mod tests {
             text("Visit"),
             Distance::positive(50, DistanceUnit::Metre).unwrap(),
             MileageSourceMethod::Odometer,
+            false,
             None,
             None,
             Some(1000),
@@ -406,32 +470,23 @@ mod tests {
     }
 
     #[test]
-    fn explicit_mileage_rate_can_create_draft_line_proposal() {
-        let entry = MileageEntry::new(
-            id("m1"),
-            CivilDate::new(2026, 9, 14).unwrap(),
-            text("Office"),
-            text("Client"),
-            text("Business meeting"),
-            Distance::positive(12_500, DistanceUnit::MilliMile).unwrap(),
-            MileageSourceMethod::Manual,
-            Some(id("project")),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        let rate = MileageRate::new(
-            id("rate"),
-            CivilDate::new(2026, 1, 1).unwrap(),
-            None,
-            DistanceUnit::MilliMile,
-            Money::nonnegative(45).unwrap(),
-            text("explicit-billing-policy"),
-        )
-        .unwrap();
-        let proposal = entry.to_draft_commercial_line_proposal(id("proposal"), &rate).unwrap();
+    fn non_billable_mileage_cannot_create_draft_line_proposal() {
+        let mut entry = manual_entry("m1", false);
+        entry.approve().unwrap();
+        assert!(entry.to_draft_commercial_line_proposal(id("proposal"), &billing_rate()).is_err());
+        assert_eq!(entry.state(), MileageEntryState::Approved);
+    }
+
+    #[test]
+    fn approved_billable_mileage_creates_one_draft_line_proposal() {
+        let mut entry = manual_entry("m1", true);
+        entry.approve().unwrap();
+        let proposal = entry
+            .to_draft_commercial_line_proposal(id("proposal"), &billing_rate())
+            .unwrap();
         assert_eq!(proposal.amount().minor(), 563);
         assert_eq!(proposal.source_kind(), ProposalSourceKind::Mileage);
+        assert_eq!(entry.state(), MileageEntryState::BilledProposal);
+        assert!(entry.to_draft_commercial_line_proposal(id("proposal-2"), &billing_rate()).is_err());
     }
 }
