@@ -9,6 +9,7 @@ use crate::primitives::{
 pub enum TimeEntryState {
     Draft,
     Approved,
+    Superseded,
     BilledProposal,
     Cancelled,
 }
@@ -139,19 +140,22 @@ impl TimeEntry {
     }
 
     pub fn correction(
-        &self,
+        &mut self,
         new_id: EntityId,
         start_minute: i64,
         end_minute: i64,
         activity: BoundedText,
         notes: BoundedText,
     ) -> DomainResult<Self> {
-        if !matches!(self.state, TimeEntryState::Approved | TimeEntryState::BilledProposal) {
-            return Err(DomainError::InvalidState("only approved evidence may be corrected by new identity"));
+        if self.state != TimeEntryState::Approved {
+            return Err(DomainError::InvalidState(
+                "only approved unbilled evidence may be corrected by new identity",
+            ));
         }
         if new_id == self.id {
             return Err(DomainError::InvalidValue("correction must have a new identity"));
         }
+
         let mut corrected = Self::new(
             new_id,
             self.worker_id.clone(),
@@ -164,6 +168,8 @@ impl TimeEntry {
             notes,
         )?;
         corrected.supersedes = Some(self.id.clone());
+
+        self.state = TimeEntryState::Superseded;
         Ok(corrected)
     }
 
@@ -206,6 +212,10 @@ pub struct TimeOverlap {
     pub worker_id: EntityId,
 }
 
+fn excluded_from_overlap(state: TimeEntryState) -> bool {
+    matches!(state, TimeEntryState::Cancelled | TimeEntryState::Superseded)
+}
+
 pub fn detect_overlaps(entries: &[TimeEntry]) -> DomainResult<Vec<TimeOverlap>> {
     let mut seen_ids = BTreeSet::new();
     for entry in entries {
@@ -216,11 +226,11 @@ pub fn detect_overlaps(entries: &[TimeEntry]) -> DomainResult<Vec<TimeOverlap>> 
 
     let mut overlaps = Vec::new();
     for (index, first) in entries.iter().enumerate() {
-        if first.state == TimeEntryState::Cancelled {
+        if excluded_from_overlap(first.state) {
             continue;
         }
         for second in entries.iter().skip(index + 1) {
-            if second.state == TimeEntryState::Cancelled || first.worker_id != second.worker_id {
+            if excluded_from_overlap(second.state) || first.worker_id != second.worker_id {
                 continue;
             }
             if first.start_minute < second.end_minute && second.start_minute < first.end_minute {
@@ -306,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn approved_time_correction_uses_new_identity() {
+    fn approved_time_correction_supersedes_original_with_new_identity() {
         let mut original = entry("old", "w1", 100, 160);
         original.approve().unwrap();
         let corrected = original
@@ -319,8 +329,60 @@ mod tests {
             )
             .unwrap();
         assert_eq!(original.end_minute(), 160);
+        assert_eq!(original.state(), TimeEntryState::Superseded);
         assert_eq!(corrected.supersedes(), Some(&id("old")));
         assert_eq!(corrected.state(), TimeEntryState::Draft);
+        assert!(original
+            .to_draft_commercial_line_proposal(id("must-not-bill-superseded"))
+            .is_err());
+    }
+
+    #[test]
+    fn failed_time_correction_does_not_mutate_original() {
+        let mut original = entry("old", "w1", 100, 160);
+        original.approve().unwrap();
+        let result = original.correction(
+            id("new"),
+            200,
+            200,
+            BoundedText::new("Invalid correction", 120).unwrap(),
+            BoundedText::new("invalid", 500).unwrap(),
+        );
+        assert!(result.is_err());
+        assert_eq!(original.state(), TimeEntryState::Approved);
+    }
+
+    #[test]
+    fn overlap_detection_ignores_superseded_evidence() {
+        let mut original = entry("old", "w1", 100, 160);
+        original.approve().unwrap();
+        let corrected = original
+            .correction(
+                id("new"),
+                100,
+                170,
+                BoundedText::new("Corrected consulting", 120).unwrap(),
+                BoundedText::new("corrected", 500).unwrap(),
+            )
+            .unwrap();
+        let overlaps = detect_overlaps(&[original, corrected]).unwrap();
+        assert!(overlaps.is_empty());
+    }
+
+    #[test]
+    fn billed_time_cannot_be_recorrected_into_a_second_billable_source() {
+        let mut time = entry("t1", "w1", 100, 190);
+        time.approve().unwrap();
+        time.to_draft_commercial_line_proposal(id("proposal")).unwrap();
+        let result = time.correction(
+            id("correction"),
+            100,
+            200,
+            BoundedText::new("Late correction", 120).unwrap(),
+            BoundedText::new("must use downstream correction", 500).unwrap(),
+        );
+        assert!(result.is_err());
+        assert_eq!(time.state(), TimeEntryState::BilledProposal);
     }
 
     #[test]
