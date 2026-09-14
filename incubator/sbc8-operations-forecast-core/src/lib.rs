@@ -39,7 +39,7 @@ mod integration_tests {
         let mut time = TimeEntry::new(
             id("time-1"),
             id("worker-1"),
-            project.id.clone(),
+            project.id().clone(),
             text("Implementation", 120),
             1_000,
             1_120,
@@ -60,7 +60,7 @@ mod integration_tests {
             text("Project visit", 200),
             Distance::positive(10_000, DistanceUnit::MilliMile).unwrap(),
             MileageSourceMethod::Manual,
-            Some(project.id.clone()),
+            Some(project.id().clone()),
             Some(id("customer-1")),
             None,
             None,
@@ -81,12 +81,12 @@ mod integration_tests {
         assert_eq!(mileage_line.amount.minor(), 450);
 
         let facts = vec![
-            ProjectFact::money(id("income"), project.id.clone(), ProjectFactKind::Income, Money::from_minor(20_000)).unwrap(),
-            ProjectFact::money(id("cost"), project.id.clone(), ProjectFactKind::Cost, Money::from_minor(5_000)).unwrap(),
-            ProjectFact::quantity(id("time-fact"), project.id.clone(), ProjectFactKind::TimeMinutes, 120).unwrap(),
-            ProjectFact::quantity(id("mileage-fact"), project.id.clone(), ProjectFactKind::MileageUnits, 10_000).unwrap(),
+            ProjectFact::money(id("income"), project.id().clone(), ProjectFactKind::Income, Money::from_minor(20_000)).unwrap(),
+            ProjectFact::money(id("cost"), project.id().clone(), ProjectFactKind::Cost, Money::from_minor(5_000)).unwrap(),
+            ProjectFact::quantity(id("time-fact"), project.id().clone(), ProjectFactKind::TimeMinutes, 120).unwrap(),
+            ProjectFact::quantity(id("mileage-fact"), project.id().clone(), ProjectFactKind::MileageUnits, 10_000).unwrap(),
         ];
-        let summary = summarize_project(&project.id, &facts).unwrap();
+        let summary = summarize_project(project.id(), &facts).unwrap();
         assert_eq!(summary.profit.minor(), 15_000);
 
         let recurrence = RecurrenceSpec::new(
@@ -99,14 +99,15 @@ mod integration_tests {
             MonthlyPolicy::SameDayClamped,
         )
         .unwrap();
-        let template = ScheduledForecastTemplate {
-            id: id("commitment"),
-            source_reference: text("confirmed recurring commitment", 120),
-            source_kind: ForecastSourceKind::RecurringCommitment,
-            certainty: ForecastCertainty::KnownContractual,
-            amount: AmountEstimate::Exact(Money::from_minor(-2_500)),
-            scenario_id: None,
-        };
+        let template = ScheduledForecastTemplate::new(
+            id("commitment"),
+            text("confirmed recurring commitment", 120),
+            ForecastSourceKind::RecurringCommitment,
+            ForecastCertainty::KnownContractual,
+            AmountEstimate::Exact(Money::from_minor(-2_500)),
+            None,
+        )
+        .unwrap();
         let proposals = template.propose(&recurrence, 10).unwrap();
         assert_eq!(proposals.len(), 2);
 
