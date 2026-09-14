@@ -73,63 +73,90 @@ REQUIRED_ANCHORS = {
     "src/projects.rs": (
         "pub enum ProjectState",
         "pub struct Project",
+        "pub fn state(&self) -> ProjectState",
         "pub struct ProjectFact",
         "pub fn summarize_project",
+        "project fact identity reused",
     ),
     "src/timesheets.rs": (
         "pub enum TimeEntryState",
         "pub struct TimeEntry",
+        "pub fn state(&self) -> TimeEntryState",
         "pub fn correction",
         "pub fn to_draft_commercial_line_proposal",
         "pub fn detect_overlaps",
     ),
     "src/mileage.rs": (
+        "pub struct Distance",
         "pub enum MileageSourceMethod",
         "pub struct MileageEntry",
+        "pub fn source_method(&self) -> MileageSourceMethod",
         "pub struct MileageRate",
+        "pub fn source_reference(&self) -> &BoundedText",
         "pub fn select_rate",
         "pub fn to_draft_commercial_line_proposal",
     ),
     "src/recurrence.rs": (
         "pub struct RecurrenceSpec",
         "pub const MAX_GENERATED_OCCURRENCES",
+        "pub fn timezone_id(&self) -> &BoundedText",
         "pub fn generate",
     ),
     "src/forecast.rs": (
         "pub enum ForecastCertainty",
         "pub enum AmountEstimate",
         "pub struct ForecastEvent",
+        "pub fn state(&self) -> &ForecastEventState",
         "pub fn project_forecast",
+        "forecast event identity reused",
         "pub struct ScheduledForecastTemplate",
         "pub fn propose",
     ),
 }
 
+SEALED_STRUCTS = {
+    "src/date.rs": ("CivilDate",),
+    "src/projects.rs": ("Project", "ProjectFact"),
+    "src/timesheets.rs": ("TimeEntry",),
+    "src/mileage.rs": ("Distance", "MileageEntry", "MileageRate"),
+    "src/recurrence.rs": ("RecurrenceSpec",),
+    "src/forecast.rs": ("ForecastEvent", "ScheduledForecastTemplate"),
+}
+
 REQUIRED_TESTS = (
     "bounded_ids_and_text_fail_closed",
     "checked_money_overflow_fails",
+    "time_billing_rounding_is_deterministic",
     "invalid_civil_dates_fail_closed",
     "leap_day_and_month_end_are_deterministic",
+    "add_days_crosses_month_and_year_boundaries",
+    "large_day_step_remains_calendar_correct",
     "project_lifecycle_transitions_fail_closed",
     "project_profitability_is_deterministic_and_traceable",
+    "duplicate_project_fact_identity_is_rejected",
     "invalid_time_interval_is_rejected",
+    "non_billable_time_rejects_billing_rate",
     "overlap_detection_is_worker_scoped",
     "approved_time_correction_uses_new_identity",
     "approved_billable_time_creates_draft_line_proposal_only",
     "manual_mileage_requires_no_route_or_location_dependency",
     "odometer_inconsistency_is_rejected",
     "effective_dated_source_linked_rate_selection_is_explicit",
+    "overlapping_effective_rates_fail_closed",
     "explicit_mileage_rate_can_create_draft_line_proposal",
     "recurrence_hard_cap_prevents_unbounded_generation",
     "recurrence_count_and_end_date_are_both_enforced",
     "monthly_anchor_does_not_drift_after_short_month",
-    "explicit_month_end_policy_stays_at_month_end",
+    "explicit_month_end_policy_stays_at_month_end_including_first_occurrence",
     "yearly_leap_day_is_clamped_without_float_or_timezone_guessing",
+    "large_weekly_interval_remains_bounded_by_supported_date_range",
     "forecast_is_chronological_and_traceable",
     "forecast_range_propagates_low_expected_high_without_hiding_band",
     "scenario_events_require_explicit_enablement",
     "skipped_and_linked_actual_events_do_not_double_count",
+    "duplicate_forecast_event_identity_is_rejected",
     "recurrence_to_forecast_creates_proposals_only",
+    "invalid_scenario_template_binding_fails_at_construction",
     "representative_project_time_mileage_and_forecast_flow_is_domain_only",
 )
 
@@ -155,6 +182,14 @@ def git_text(repo: pathlib.Path, *args: str) -> str:
     result = run(repo, "git", *args)
     check(result.returncode == 0, f"git {' '.join(args)}")
     return result.stdout.strip()
+
+
+def struct_body(text: str, struct_name: str) -> str | None:
+    match = re.search(
+        rf"(?ms)^pub struct {re.escape(struct_name)}\s*\{{(?P<body>.*?)^\}}",
+        text,
+    )
+    return None if match is None else match.group("body")
 
 
 def main() -> int:
@@ -206,6 +241,14 @@ def main() -> int:
         text = (repo / CRATE / relative).read_text(encoding="utf-8")
         for anchor in anchors:
             check(anchor in text, f"{relative} contains required anchor: {anchor}")
+
+    for relative, names in SEALED_STRUCTS.items():
+        text = (repo / CRATE / relative).read_text(encoding="utf-8")
+        for name in names:
+            body = struct_body(text, name)
+            check(body is not None, f"{relative} exposes sealed struct declaration: {name}")
+            public_field = re.search(r"(?m)^\s*pub\s+[A-Za-z_][A-Za-z0-9_]*\s*:", body or "")
+            check(public_field is None, f"{relative} keeps {name} validated fields private")
 
     for test_name in REQUIRED_TESTS:
         check(test_name in runtime, f"required focused regression declared: {test_name}")
