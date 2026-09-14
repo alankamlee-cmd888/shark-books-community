@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::primitives::{
     checked_bill_for_minutes, BoundedText, DomainError, DomainResult,
     DraftCommercialLineProposal, EntityId, Money, ProposalSourceKind,
@@ -204,7 +206,14 @@ pub struct TimeOverlap {
     pub worker_id: EntityId,
 }
 
-pub fn detect_overlaps(entries: &[TimeEntry]) -> Vec<TimeOverlap> {
+pub fn detect_overlaps(entries: &[TimeEntry]) -> DomainResult<Vec<TimeOverlap>> {
+    let mut seen_ids = BTreeSet::new();
+    for entry in entries {
+        if !seen_ids.insert(entry.id.clone()) {
+            return Err(DomainError::Duplicate("time entry identity reused"));
+        }
+    }
+
     let mut overlaps = Vec::new();
     for (index, first) in entries.iter().enumerate() {
         if first.state == TimeEntryState::Cancelled {
@@ -223,7 +232,7 @@ pub fn detect_overlaps(entries: &[TimeEntry]) -> Vec<TimeOverlap> {
             }
         }
     }
-    overlaps
+    Ok(overlaps)
 }
 
 #[cfg(test)]
@@ -284,10 +293,16 @@ mod tests {
     #[test]
     fn overlap_detection_is_worker_scoped() {
         let entries = vec![entry("a", "w1", 100, 160), entry("b", "w1", 150, 200), entry("c", "w2", 150, 200)];
-        let overlaps = detect_overlaps(&entries);
+        let overlaps = detect_overlaps(&entries).unwrap();
         assert_eq!(overlaps.len(), 1);
         assert_eq!(overlaps[0].first_id, id("a"));
         assert_eq!(overlaps[0].second_id, id("b"));
+    }
+
+    #[test]
+    fn duplicate_time_entry_identity_is_rejected() {
+        let entries = vec![entry("same", "w1", 100, 160), entry("same", "w1", 200, 260)];
+        assert!(detect_overlaps(&entries).is_err());
     }
 
     #[test]
