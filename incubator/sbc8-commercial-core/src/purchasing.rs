@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::documents::CommercialLine;
 use crate::identity::CommercialPartySnapshot;
@@ -135,6 +135,11 @@ impl SupplierBill {
     ) -> DomainResult<SupplierCredit> {
         let amount = Money::positive(amount.minor())?;
         self.require_open()?;
+        if credit_id == self.id {
+            return Err(DomainError::Conflict(
+                "supplier credit and bill must have distinct identities".into(),
+            ));
+        }
         if amount > self.outstanding()? {
             return Err(DomainError::Conflict(
                 "supplier credit exceeds outstanding balance".into(),
@@ -395,6 +400,21 @@ impl PurchaseOrder {
                 "purchase order must be issued before bill comparison".into(),
             ));
         }
+
+        let mut seen_bill_mappings = BTreeSet::new();
+        for billed in bill_lines {
+            if billed.unit_cost.minor() < 0 {
+                return Err(DomainError::Invalid(
+                    "bill comparison unit cost must not be negative".into(),
+                ));
+            }
+            if !seen_bill_mappings.insert(billed.po_line_id.clone()) {
+                return Err(DomainError::Conflict(
+                    "duplicate bill comparison mapping for purchase order line".into(),
+                ));
+            }
+        }
+
         let mut lines = Vec::with_capacity(self.lines.len());
         let mut has_variance = false;
         for ordered in &self.lines {
@@ -480,6 +500,26 @@ mod tests {
     }
 
     #[test]
+    fn supplier_credit_identity_is_distinct_from_bill() {
+        let mut bill = SupplierBill::new(
+            EntityId::new("bill-1").unwrap(),
+            supplier(),
+            "SUP-001",
+        )
+        .unwrap();
+        bill.add_line(bill_line(5_000)).unwrap();
+        bill.approve().unwrap();
+        assert!(bill
+            .create_credit(
+                EntityId::new("bill-1").unwrap(),
+                Money::positive(1_000).unwrap(),
+                "credit"
+            )
+            .is_err());
+        assert_eq!(bill.outstanding().unwrap().minor(), 5_000);
+    }
+
+    #[test]
     fn supplier_duplicate_key_is_canonical() {
         let first = SupplierBill::new(
             EntityId::new("bill-1").unwrap(),
@@ -542,5 +582,60 @@ mod tests {
             .unwrap();
         assert!(variance.has_variance);
         assert_eq!(po.state(), PurchaseOrderState::Issued);
+    }
+
+    #[test]
+    fn po_to_bill_comparison_rejects_duplicate_line_mappings() {
+        let mut po = PurchaseOrder::new(EntityId::new("po-1").unwrap(), supplier());
+        let line_id = EntityId::new("po-line-1").unwrap();
+        po.add_line(
+            PurchaseOrderLine::new(
+                line_id.clone(),
+                "Parts",
+                Quantity::positive(10).unwrap(),
+                Money::positive(500).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        po.issue().unwrap();
+        let duplicated = [
+            BillComparisonLine {
+                po_line_id: line_id.clone(),
+                quantity: Quantity::positive(4).unwrap(),
+                unit_cost: Money::positive(500).unwrap(),
+            },
+            BillComparisonLine {
+                po_line_id: line_id,
+                quantity: Quantity::positive(6).unwrap(),
+                unit_cost: Money::positive(500).unwrap(),
+            },
+        ];
+        assert!(po.compare_bill(&duplicated).is_err());
+        assert_eq!(po.state(), PurchaseOrderState::Issued);
+    }
+
+    #[test]
+    fn po_to_bill_comparison_rejects_negative_unit_cost() {
+        let mut po = PurchaseOrder::new(EntityId::new("po-1").unwrap(), supplier());
+        let line_id = EntityId::new("po-line-1").unwrap();
+        po.add_line(
+            PurchaseOrderLine::new(
+                line_id.clone(),
+                "Parts",
+                Quantity::positive(10).unwrap(),
+                Money::positive(500).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        po.issue().unwrap();
+        assert!(po
+            .compare_bill(&[BillComparisonLine {
+                po_line_id: line_id,
+                quantity: Quantity::positive(10).unwrap(),
+                unit_cost: Money::from_minor(-1),
+            }])
+            .is_err());
     }
 }
