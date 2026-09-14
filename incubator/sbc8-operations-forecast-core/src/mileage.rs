@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::date::CivilDate;
 use crate::primitives::{
     BoundedText, DomainError, DomainResult, DraftCommercialLineProposal, EntityId, Money,
@@ -260,6 +262,13 @@ pub fn select_rate<'a>(
     date: CivilDate,
     unit: DistanceUnit,
 ) -> DomainResult<Option<&'a MileageRate>> {
+    let mut seen_ids = BTreeSet::new();
+    for rate in rates {
+        if !seen_ids.insert(rate.id.clone()) {
+            return Err(DomainError::Duplicate("mileage rate identity reused"));
+        }
+    }
+
     let mut matches = rates.iter().filter(|rate| rate.applies_to(date, unit));
     let first = matches.next();
     if matches.next().is_some() {
@@ -344,6 +353,31 @@ mod tests {
             .unwrap();
         assert_eq!(selected.id(), &id("r2"));
         assert_eq!(selected.source_reference().as_str(), "policy-source-v2");
+    }
+
+    #[test]
+    fn duplicate_mileage_rate_identity_is_rejected() {
+        let rates = vec![
+            MileageRate::new(
+                id("same"),
+                CivilDate::new(2026, 1, 1).unwrap(),
+                Some(CivilDate::new(2026, 6, 30).unwrap()),
+                DistanceUnit::MilliMile,
+                Money::nonnegative(45).unwrap(),
+                text("policy-a"),
+            )
+            .unwrap(),
+            MileageRate::new(
+                id("same"),
+                CivilDate::new(2026, 7, 1).unwrap(),
+                None,
+                DistanceUnit::MilliMile,
+                Money::nonnegative(50).unwrap(),
+                text("policy-b"),
+            )
+            .unwrap(),
+        ];
+        assert!(select_rate(&rates, CivilDate::new(2026, 9, 14).unwrap(), DistanceUnit::MilliMile).is_err());
     }
 
     #[test]
