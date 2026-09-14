@@ -1302,7 +1302,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read migrated application schema");
-        assert_eq!(observed, 4);
+        assert_eq!(observed, 5);
         assert_eq!(reopened.verify().expect("Beankeeper schema"), 8);
         drop(reopened);
 
