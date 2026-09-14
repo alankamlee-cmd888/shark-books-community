@@ -4,6 +4,7 @@
 //! postings, tax decisions or external/network side effects.
 
 use super::*;
+use crate::bank_application::sqlite_error;
 
 const MAX_CONTACT_ID_BYTES: usize = 128;
 const MAX_CONTACT_NAME_BYTES: usize = 256;
@@ -134,53 +135,55 @@ impl Books {
 
     pub fn save_contact(&self, write: &ContactWrite) -> FoundationResult<ContactPersistOutcome> {
         let write = normalized_write(write)?;
-        if let Some(existing) = self.contact_by_id_optional(&write.contact_id)? {
-            if existing.kind != write.kind {
-                return Err(validation(
-                    "contact id already exists with a different immutable kind",
-                ));
+        self.shark_savepoint("shark_contact_save", || {
+            if let Some(existing) = self.contact_by_id_optional(&write.contact_id)? {
+                if existing.kind != write.kind {
+                    return Err(validation(
+                        "contact id already exists with a different immutable kind",
+                    ));
+                }
+                if existing.display_name == write.display_name {
+                    return Ok(ContactPersistOutcome::AlreadyCurrent(existing));
+                }
+                self.db
+                    .conn()
+                    .execute(
+                        "UPDATE shark_contact
+                         SET display_name = ?1, updated_by = ?2, updated_at = CURRENT_TIMESTAMP
+                         WHERE company_slug = ?3 AND contact_id = ?4 AND kind = ?5",
+                        (
+                            &write.display_name,
+                            self.actor.name(),
+                            &self.company_slug,
+                            &write.contact_id,
+                            &write.kind,
+                        ),
+                    )
+                    .map_err(sqlite_error)?;
+                return self
+                    .contact(&write.contact_id)
+                    .map(ContactPersistOutcome::Updated);
             }
-            if existing.display_name == write.display_name {
-                return Ok(ContactPersistOutcome::AlreadyCurrent(existing));
-            }
+
             self.db
                 .conn()
                 .execute(
-                    "UPDATE shark_contact
-                     SET display_name = ?1, updated_by = ?2, updated_at = CURRENT_TIMESTAMP
-                     WHERE company_slug = ?3 AND contact_id = ?4 AND kind = ?5",
+                    "INSERT INTO shark_contact(
+                        company_slug, contact_id, kind, display_name,
+                        created_by, updated_by
+                     ) VALUES(?1, ?2, ?3, ?4, ?5, ?5)",
                     (
-                        &write.display_name,
-                        self.actor.name(),
                         &self.company_slug,
                         &write.contact_id,
                         &write.kind,
+                        &write.display_name,
+                        self.actor.name(),
                     ),
                 )
                 .map_err(sqlite_error)?;
-            return self
-                .contact(&write.contact_id)
-                .map(ContactPersistOutcome::Updated);
-        }
-
-        self.db
-            .conn()
-            .execute(
-                "INSERT INTO shark_contact(
-                    company_slug, contact_id, kind, display_name,
-                    created_by, updated_by
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?5)",
-                (
-                    &self.company_slug,
-                    &write.contact_id,
-                    &write.kind,
-                    &write.display_name,
-                    self.actor.name(),
-                ),
-            )
-            .map_err(sqlite_error)?;
-        self.contact(&write.contact_id)
-            .map(ContactPersistOutcome::Created)
+            self.contact(&write.contact_id)
+                .map(ContactPersistOutcome::Created)
+        })
     }
 
     pub fn contacts(&self, kind: Option<&str>, limit: i64) -> FoundationResult<Vec<ContactView>> {
@@ -284,6 +287,41 @@ mod tests {
             "contact persistence must not post accounting transactions"
         );
 
+        drop(books);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
+    fn contact_readback_failure_rolls_back_create_and_update() {
+        let path = temp_db_path("readback-rollback");
+        let books = Books::create_plain_for_test(
+            &path, "contact-books", "Contact Books", "local-owner",
+        ).expect("create test books");
+        let write = ContactWrite {
+            contact_id: "customer-1".into(),
+            kind: "customer".into(),
+            display_name: "Original".into(),
+        };
+        books.db.conn().execute_batch(
+            "CREATE TEMP TRIGGER lose_created_contact AFTER INSERT ON shark_contact
+             BEGIN DELETE FROM shark_contact WHERE company_slug = NEW.company_slug
+                 AND contact_id = NEW.contact_id; END;"
+        ).expect("inject create readback failure");
+        assert!(books.save_contact(&write).is_err());
+        assert!(books.contacts(None, 200).unwrap().is_empty());
+        assert!(books.db.conn().is_autocommit(), "savepoint released after failure");
+        books.db.conn().execute_batch("DROP TRIGGER lose_created_contact;").unwrap();
+        books.save_contact(&write).expect("seed original");
+        let original = books.contact(&write.contact_id).unwrap();
+        books.db.conn().execute_batch(
+            "CREATE TEMP TRIGGER lose_updated_contact AFTER UPDATE ON shark_contact
+             BEGIN DELETE FROM shark_contact WHERE company_slug = NEW.company_slug
+                 AND contact_id = NEW.contact_id; END;"
+        ).expect("inject update readback failure");
+        let renamed = ContactWrite { display_name: "Changed".into(), ..write };
+        assert!(books.save_contact(&renamed).is_err());
+        assert_eq!(books.contact(&renamed.contact_id).unwrap(), original);
+        assert!(books.db.conn().is_autocommit());
         drop(books);
         remove_sqlite_artifacts(&path);
     }

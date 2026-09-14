@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod bank_application;
+mod contact_application;
 mod document_application;
 mod mutation_audit_application;
 pub use bank_application::{
@@ -31,6 +32,7 @@ pub use bank_application::{
     BankReconciliationPersistOutcome, BankReconciliationRecord, BankReconciliationView,
     BankReconciliationWrite,
 };
+pub use contact_application::{ContactPersistOutcome, ContactView, ContactWrite};
 pub use document_application::{
     DocumentAttachmentPersistOutcome, DocumentAttachmentView, DocumentAttachmentWrite,
     DocumentPersistOutcome, DocumentView, DocumentWrite,
@@ -41,7 +43,7 @@ pub use mutation_audit_application::{
 };
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
-pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 4;
+pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 5;
 pub const SHARK_BOOKS_FORMAT_VERSION: u32 = 1;
 pub const BEANKEEPER_DATABASE_SCHEMA_VERSION: i64 = 8;
 
@@ -689,8 +691,22 @@ impl Books {
         let rows =
             db::compute_trial_balance(self.db.conn(), &self.company_slug, None, None, None)
                 .map_err(map_cli_error)?;
-        let total_debits = rows.iter().map(|r| r.debit_total).sum();
-        let total_credits = rows.iter().map(|r| r.credit_total).sum();
+        let total_debits = rows.iter().try_fold(0_i64, |total, row| {
+            total.checked_add(row.debit_total).ok_or_else(|| {
+                FoundationError::new(
+                    FoundationErrorCode::Validation,
+                    "trial balance debit total overflow",
+                )
+            })
+        })?;
+        let total_credits = rows.iter().try_fold(0_i64, |total, row| {
+            total.checked_add(row.credit_total).ok_or_else(|| {
+                FoundationError::new(
+                    FoundationErrorCode::Validation,
+                    "trial balance credit total overflow",
+                )
+            })
+        })?;
         Ok(TrialBalance {
             accounts: rows
                 .into_iter()
@@ -1029,6 +1045,44 @@ mod tests {
     }
 
     #[test]
+    fn authoritative_trial_balance_totals_fail_closed_on_debit_and_credit_overflow() {
+        let path = temp_db_path("trial-total-overflow");
+        let books = Books::create_plain_for_test(&path, "overflow-books", "Overflow", "owner")
+            .expect("test books");
+        for code in ["1000", "1010", "4000", "4100"] {
+            books.create_account(code, code, if code.starts_with('1') { "asset" } else { "revenue" })
+                .expect("test account");
+        }
+        for (debit, credit, amount) in [("1000", "4000", i64::MAX), ("1010", "4100", 1)] {
+            books.post(&PostTransactionRequest {
+                description: "Total boundary".into(), date: "2026-09-14".into(),
+                currency_code: "GBP".into(), reference: None, metadata: None,
+                lines: vec![
+                    PostingLine { account_code: debit.into(), direction: Direction::Debit, amount_minor: amount, memo: None },
+                    PostingLine { account_code: credit.into(), direction: Direction::Credit, amount_minor: amount, memo: None },
+                ],
+            }).expect("individually valid balanced transaction");
+            if amount == i64::MAX {
+                let at_limit = books.trial_balance().expect("exact i64 maximum is valid");
+                assert_eq!(at_limit.total_debits, i64::MAX);
+                assert_eq!(at_limit.total_credits, i64::MAX);
+                assert!(at_limit.balanced);
+            }
+        }
+        let debit_error = books.trial_balance().unwrap_err();
+        assert_eq!(debit_error.code, FoundationErrorCode::Validation);
+        assert_eq!(debit_error.message, "trial balance debit total overflow");
+        // A deliberately inconsistent test fixture isolates the credit-only overflow branch.
+        books.db.conn().execute("UPDATE entries SET direction = 'credit' WHERE direction = 'debit'", [])
+            .expect("credit-only overflow fixture");
+        let credit_error = books.trial_balance().unwrap_err();
+        assert_eq!(credit_error.code, FoundationErrorCode::Validation);
+        assert_eq!(credit_error.message, "trial balance credit total overflow");
+        drop(books);
+        remove_sqlite_artifacts(&path);
+    }
+
+    #[test]
     fn cli_error_mapping_is_stable_and_shark_owned() {
         let cases = [
             (
@@ -1079,7 +1133,7 @@ mod tests {
             metadata.application_schema_version,
             SHARK_APPLICATION_SCHEMA_VERSION
         );
-        assert_eq!(metadata.application_schema_version, 4);
+        assert_eq!(metadata.application_schema_version, 5);
         assert_eq!(metadata.facade_api_version, SHARK_FACADE_API_VERSION);
         let migration = books.migration_metadata().expect("migration metadata");
         assert_eq!(
@@ -1186,7 +1240,7 @@ mod tests {
         );
         assert_eq!(
             books.metadata().expect("metadata").application_schema_version,
-            4
+            5
         );
         drop(books);
 
@@ -1202,7 +1256,7 @@ mod tests {
         assert_eq!(reopened.books_id(), books_id);
         assert_eq!(
             reopened.metadata().expect("reopened metadata").application_schema_version,
-            4
+            5
         );
         drop(reopened);
 
