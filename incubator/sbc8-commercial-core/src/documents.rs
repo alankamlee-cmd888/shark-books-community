@@ -385,6 +385,12 @@ impl Invoice {
         self.credited
     }
 
+    pub fn set_customer(&mut self, customer: CommercialPartySnapshot) -> DomainResult<()> {
+        self.require_draft()?;
+        self.customer = customer;
+        Ok(())
+    }
+
     pub fn add_line(&mut self, line: CommercialLine) -> DomainResult<()> {
         self.require_draft()?;
         if self.lines.iter().any(|existing| existing.id == line.id) {
@@ -552,6 +558,18 @@ mod tests {
         .snapshot()
     }
 
+    fn customer_with_id(id: &str, name: &str) -> CommercialPartySnapshot {
+        CommercialParty::new(
+            EntityId::new(id).unwrap(),
+            name,
+            None::<String>,
+            None::<String>,
+            None::<String>,
+        )
+        .unwrap()
+        .snapshot()
+    }
+
     fn line(id: &str, amount: i64) -> CommercialLine {
         CommercialLine::new(
             EntityId::new(id).unwrap(),
@@ -594,6 +612,27 @@ mod tests {
         assert_eq!(invoice.state(), InvoiceState::Draft);
         assert_eq!(invoice.source_quote_id().unwrap().as_str(), "quote-1");
         assert_ne!(invoice.id(), quote.id());
+    }
+
+    #[test]
+    fn invoice_draft_customer_mutates_before_issue_then_freezes() {
+        let mut invoice = Invoice::new(
+            EntityId::new("invoice-1").unwrap(),
+            customer_with_id("customer-1", "Alpha"),
+        );
+        invoice
+            .set_customer(customer_with_id("customer-2", "Beta"))
+            .unwrap();
+        invoice.add_line(line("i-line", 10_000)).unwrap();
+        let snapshot = invoice
+            .issue(CommercialNumber::new("INV-1").unwrap())
+            .unwrap()
+            .clone();
+        assert_eq!(snapshot.customer().display_name(), "Beta");
+        assert!(invoice
+            .set_customer(customer_with_id("customer-3", "Gamma"))
+            .is_err());
+        assert_eq!(snapshot.customer().display_name(), "Beta");
     }
 
     #[test]
