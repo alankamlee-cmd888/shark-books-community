@@ -152,6 +152,7 @@ def static_gate(repo: Path) -> dict[str, object]:
             "pub fn apply_verified_event",
             "pub fn allocate_to_invoice",
             "provider event id was reused with conflicting immutable content",
+            "cumulative invoice allocations exceed payment intent amount",
             "pub struct Settlement",
         ],
         "purchasing.rs": [
@@ -161,6 +162,7 @@ def static_gate(repo: Path) -> dict[str, object]:
             "pub struct PurchaseOrder",
             "pub fn receive",
             "pub fn compare_bill",
+            "duplicate bill comparison mapping for purchase order line",
         ],
     }
     for filename, values in anchors.items():
@@ -175,18 +177,25 @@ def static_gate(repo: Path) -> dict[str, object]:
         "quote_draft_mutates_then_issue_freezes_snapshot",
         "invalid_quote_transition_fails_closed",
         "accepted_quote_creates_new_draft_invoice_identity",
+        "invoice_draft_customer_mutates_before_issue_then_freezes",
         "invoice_partial_then_final_payment_is_exact",
         "invoice_overpayment_fails",
         "credit_note_is_distinct_and_bounded_by_outstanding",
         "issued_invoice_snapshot_is_immutable",
         "provider_event_registry_is_idempotent_and_conflict_closed",
+        "invalid_payment_event_does_not_mutate_intent",
+        "invalid_first_event_does_not_bind_provider_identity",
         "verified_success_does_not_allocate_invoice_without_explicit_action",
+        "cumulative_payment_allocation_cannot_exceed_intent_amount",
         "settlement_arithmetic_is_exact",
         "supplier_bill_requires_explicit_approval_then_partial_and_final_payment",
         "supplier_payment_overallocation_fails",
+        "supplier_credit_identity_is_distinct_from_bill",
         "supplier_duplicate_key_is_canonical",
         "purchase_order_receives_partially_then_fully_and_rejects_overreceipt",
         "po_to_bill_comparison_reports_variance_only",
+        "po_to_bill_comparison_rejects_duplicate_line_mappings",
+        "po_to_bill_comparison_rejects_negative_unit_cost",
         "representative_quote_invoice_payment_bill_and_po_flow_is_domain_only",
     ]
     all_source = "\n".join(text(repo, path) for path in RUNTIME_FILES)
