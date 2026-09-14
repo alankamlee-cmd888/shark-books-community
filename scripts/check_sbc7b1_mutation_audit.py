@@ -139,7 +139,7 @@ def static_gate(repo: Path) -> dict[str, object]:
     for command in NEW_COMMANDS:
         require(command in contract, f"frozen Batch A contract contains command: {command}")
         require(command in design, f"implementation design contains command: {command}")
-    require("no new dependency" in contract.lower(), "frozen contract authorises no new dependency")
+    require("no dependency addition is authorised" in contract.lower(), "frozen contract authorises no dependency addition")
 
     foundation = text(repo, "workspace/shark-foundation/src/lib.rs")
     require(
