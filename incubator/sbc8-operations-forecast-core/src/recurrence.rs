@@ -20,13 +20,13 @@ pub enum MonthlyPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecurrenceSpec {
-    pub start: CivilDate,
-    pub frequency: RecurrenceFrequency,
-    pub interval: u16,
-    pub end_date: Option<CivilDate>,
-    pub occurrence_count: Option<u32>,
-    pub timezone_id: BoundedText,
-    pub monthly_policy: MonthlyPolicy,
+    start: CivilDate,
+    frequency: RecurrenceFrequency,
+    interval: u16,
+    end_date: Option<CivilDate>,
+    occurrence_count: Option<u32>,
+    timezone_id: BoundedText,
+    monthly_policy: MonthlyPolicy,
 }
 
 impl RecurrenceSpec {
@@ -64,6 +64,34 @@ impl RecurrenceSpec {
         })
     }
 
+    pub fn start(&self) -> CivilDate {
+        self.start
+    }
+
+    pub fn frequency(&self) -> RecurrenceFrequency {
+        self.frequency
+    }
+
+    pub fn interval(&self) -> u16 {
+        self.interval
+    }
+
+    pub fn end_date(&self) -> Option<CivilDate> {
+        self.end_date
+    }
+
+    pub fn occurrence_count(&self) -> Option<u32> {
+        self.occurrence_count
+    }
+
+    pub fn timezone_id(&self) -> &BoundedText {
+        &self.timezone_id
+    }
+
+    pub fn monthly_policy(&self) -> MonthlyPolicy {
+        self.monthly_policy
+    }
+
     pub fn generate(&self, max: usize) -> DomainResult<Vec<CivilDate>> {
         if max == 0 || max > MAX_GENERATED_OCCURRENCES {
             return Err(DomainError::LimitExceeded("recurrence preview cap must be 1..=512"));
@@ -91,9 +119,16 @@ impl RecurrenceSpec {
     }
 
     fn occurrence_at(&self, index: usize) -> DomainResult<CivilDate> {
-        if index == 0 || self.frequency == RecurrenceFrequency::OneOff {
+        if self.frequency == RecurrenceFrequency::OneOff {
             return Ok(self.start);
         }
+        if index == 0 {
+            return Ok(match (self.frequency, self.monthly_policy) {
+                (RecurrenceFrequency::Monthly, MonthlyPolicy::MonthEnd) => self.start.month_end(),
+                _ => self.start,
+            });
+        }
+
         let index = u32::try_from(index).map_err(|_| DomainError::Overflow)?;
         let interval = u32::from(self.interval);
         match self.frequency {
@@ -185,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_month_end_policy_stays_at_month_end() {
+    fn explicit_month_end_policy_stays_at_month_end_including_first_occurrence() {
         let spec = RecurrenceSpec::new(
             CivilDate::new(2026, 1, 15).unwrap(),
             RecurrenceFrequency::Monthly,
@@ -196,8 +231,14 @@ mod tests {
             MonthlyPolicy::MonthEnd,
         )
         .unwrap();
-        assert_eq!(spec.generate(10).unwrap()[1], CivilDate::new(2026, 2, 28).unwrap());
-        assert_eq!(spec.generate(10).unwrap()[2], CivilDate::new(2026, 3, 31).unwrap());
+        assert_eq!(
+            spec.generate(10).unwrap(),
+            vec![
+                CivilDate::new(2026, 1, 31).unwrap(),
+                CivilDate::new(2026, 2, 28).unwrap(),
+                CivilDate::new(2026, 3, 31).unwrap(),
+            ]
+        );
     }
 
     #[test]
@@ -213,6 +254,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(spec.generate(10).unwrap()[1], CivilDate::new(2029, 2, 28).unwrap());
-        assert_eq!(spec.timezone_id.as_str(), "Europe/London");
+        assert_eq!(spec.timezone_id().as_str(), "Europe/London");
+    }
+
+    #[test]
+    fn large_weekly_interval_remains_bounded_by_supported_date_range() {
+        let spec = RecurrenceSpec::new(
+            CivilDate::new(2026, 1, 1).unwrap(),
+            RecurrenceFrequency::Weekly,
+            366,
+            None,
+            None,
+            zone(),
+            MonthlyPolicy::SameDayClamped,
+        )
+        .unwrap();
+        let output = spec.generate(8).unwrap();
+        assert_eq!(output.len(), 8);
+        assert_eq!(output[0], CivilDate::new(2026, 1, 1).unwrap());
     }
 }
