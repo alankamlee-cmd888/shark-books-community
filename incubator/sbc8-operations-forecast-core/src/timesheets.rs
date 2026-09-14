@@ -184,15 +184,16 @@ impl TimeEntry {
             format!("{} ({} minutes)", self.activity.as_str(), duration),
             240,
         )?;
-        self.state = TimeEntryState::BilledProposal;
-        Ok(DraftCommercialLineProposal {
-            id: proposal_id,
-            source_kind: ProposalSourceKind::TimeEntry,
-            source_id: self.id.clone(),
-            project_id: Some(self.project_id.clone()),
+        let proposal = DraftCommercialLineProposal::new(
+            proposal_id,
+            ProposalSourceKind::TimeEntry,
+            self.id.clone(),
+            Some(self.project_id.clone()),
             description,
             amount,
-        })
+        )?;
+        self.state = TimeEntryState::BilledProposal;
+        Ok(proposal)
     }
 }
 
@@ -312,8 +313,8 @@ mod tests {
         let mut time = entry("t1", "w1", 100, 190);
         time.approve().unwrap();
         let proposal = time.to_draft_commercial_line_proposal(id("proposal")).unwrap();
-        assert_eq!(proposal.amount.minor(), 9000);
-        assert_eq!(proposal.source_kind, ProposalSourceKind::TimeEntry);
+        assert_eq!(proposal.amount().minor(), 9000);
+        assert_eq!(proposal.source_kind(), ProposalSourceKind::TimeEntry);
         assert_eq!(time.state(), TimeEntryState::BilledProposal);
     }
 }
