@@ -34,7 +34,7 @@ impl StockTransferProposal {
             ));
         }
 
-        let outbound = StockMovement::new(
+        let outbound = StockMovement::new_internal(
             outbound_movement_id,
             item,
             source_location_id,
@@ -47,7 +47,7 @@ impl StockTransferProposal {
             Some(transfer_id.clone()),
             None,
         )?;
-        let inbound = StockMovement::new(
+        let inbound = StockMovement::new_internal(
             inbound_movement_id,
             item,
             destination_location_id,
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn malformed_transfer_pair_is_rejected() {
         let item = item();
-        let outbound = StockMovement::new(
+        let outbound = StockMovement::new_internal(
             id("out"),
             &item,
             id("a"),
@@ -222,7 +222,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let inbound = StockMovement::new(
+        let inbound = StockMovement::new_internal(
             id("in"),
             &item,
             id("b"),
