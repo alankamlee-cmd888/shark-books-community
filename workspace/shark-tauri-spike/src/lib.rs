@@ -9,6 +9,7 @@ mod owner_app;
 mod owner_bank_mutation;
 mod owner_bank_review;
 mod owner_documents_ocr;
+mod owner_mutation_audit;
 
 use std::fs;
 use std::path::PathBuf;
@@ -237,6 +238,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(ocr_native::NativeOcrRegistry::default())
         .manage(owner_documents_ocr::NativeDocumentRootRegistry::default())
+        .manage(owner_mutation_audit::ReceiptSuggestionRegistry::default())
         .invoke_handler(tauri::generate_handler![
             foundation_health,
             production_encryption_required,
@@ -262,7 +264,13 @@ pub fn run() {
             owner_documents_ocr::owner_document_select_register,
             owner_documents_ocr::owner_document_verify,
             owner_documents_ocr::owner_document_attach,
-            owner_documents_ocr::owner_ocr_extract_receipt
+            owner_documents_ocr::owner_ocr_extract_receipt,
+            owner_mutation_audit::owner_receipt_suggest_bank,
+            owner_mutation_audit::owner_receipt_confirm_bank,
+            owner_mutation_audit::owner_receipt_reject_bank,
+            owner_mutation_audit::owner_correction_preview,
+            owner_mutation_audit::owner_correction_confirm,
+            owner_mutation_audit::owner_correction_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shark Books Community bounded native shell");
@@ -346,7 +354,7 @@ mod tests {
         })
         .expect("open encrypted books command");
         assert_eq!(opened.metadata.company_name, "Shark SBC-1D Windows Proof");
-        assert_eq!(opened.metadata.application_schema_version, 3);
+        assert_eq!(opened.metadata.application_schema_version, 4);
 
         let verified = books_verify(OpenBooksRequest {
             file_name: open.file_name.clone(),
@@ -415,6 +423,12 @@ mod tests {
             "owner_document_verify",
             "owner_document_attach",
             "owner_ocr_extract_receipt",
+            "owner_receipt_suggest_bank",
+            "owner_receipt_confirm_bank",
+            "owner_receipt_reject_bank",
+            "owner_correction_preview",
+            "owner_correction_confirm",
+            "owner_correction_history",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -485,6 +499,12 @@ mod tests {
             "owner_document_verify",
             "owner_document_attach",
             "owner_ocr_extract_receipt",
+            "owner_receipt_suggest_bank",
+            "owner_receipt_confirm_bank",
+            "owner_receipt_reject_bank",
+            "owner_correction_preview",
+            "owner_correction_confirm",
+            "owner_correction_history",
         ] {
             assert!(
                 BUILD_RS.contains(command),

@@ -24,6 +24,7 @@ use sha2::{Digest, Sha256};
 
 mod bank_application;
 mod document_application;
+mod mutation_audit_application;
 pub use bank_application::{
     BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
     BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
@@ -34,9 +35,13 @@ pub use document_application::{
     DocumentAttachmentPersistOutcome, DocumentAttachmentView, DocumentAttachmentWrite,
     DocumentPersistOutcome, DocumentView, DocumentWrite,
 };
+pub use mutation_audit_application::{
+    OwnerCorrectionPersistOutcome, OwnerCorrectionView, OwnerCorrectionWrite,
+    ReceiptBankDecisionPersistOutcome, ReceiptBankDecisionView, ReceiptBankDecisionWrite,
+};
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
-pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 3;
+pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 4;
 pub const SHARK_BOOKS_FORMAT_VERSION: u32 = 1;
 pub const BEANKEEPER_DATABASE_SCHEMA_VERSION: i64 = 8;
 
@@ -1074,7 +1079,7 @@ mod tests {
             metadata.application_schema_version,
             SHARK_APPLICATION_SCHEMA_VERSION
         );
-        assert_eq!(metadata.application_schema_version, 3);
+        assert_eq!(metadata.application_schema_version, 4);
         assert_eq!(metadata.facade_api_version, SHARK_FACADE_API_VERSION);
         let migration = books.migration_metadata().expect("migration metadata");
         assert_eq!(
@@ -1181,7 +1186,7 @@ mod tests {
         );
         assert_eq!(
             books.metadata().expect("metadata").application_schema_version,
-            3
+            4
         );
         drop(books);
 
@@ -1197,7 +1202,7 @@ mod tests {
         assert_eq!(reopened.books_id(), books_id);
         assert_eq!(
             reopened.metadata().expect("reopened metadata").application_schema_version,
-            3
+            4
         );
         drop(reopened);
 
@@ -1243,7 +1248,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read migrated application schema");
-        assert_eq!(observed, 3);
+        assert_eq!(observed, 4);
         assert_eq!(reopened.verify().expect("Beankeeper schema"), 8);
         drop(reopened);
 

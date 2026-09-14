@@ -7,7 +7,7 @@
 
 use super::*;
 
-pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 3;
+pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 4;
 pub(super) const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
 pub(super) const MAX_ACTIVITY_BATCH: usize = 10_000;
 pub(super) const MAX_ACTIVITY_PAGE: i64 = 500;
@@ -169,7 +169,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     }
 
     db.conn()
-        .execute_batch("SAVEPOINT shark_application_schema_v3")
+        .execute_batch("SAVEPOINT shark_application_schema_v4")
         .map_err(sqlite_error)?;
     let migration = db.conn().execute_batch(
         r#"
@@ -268,8 +268,61 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_shark_document_attachment_target
             ON shark_document_attachment(company_slug, record_kind, record_id);
+        CREATE TABLE IF NOT EXISTS shark_receipt_bank_decision (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_slug TEXT NOT NULL,
+            suggestion_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            decision_kind TEXT NOT NULL CHECK(decision_kind IN ('confirmed','rejected')),
+            bank_activity_id INTEGER,
+            source_account_id TEXT,
+            source_file_sha256 TEXT,
+            source_locator TEXT,
+            raw_record_sha256 TEXT,
+            decided_by TEXT NOT NULL,
+            decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(company_slug, suggestion_id),
+            FOREIGN KEY(company_slug, document_id) REFERENCES shark_document(company_slug, document_id) ON DELETE RESTRICT,
+            FOREIGN KEY(bank_activity_id) REFERENCES shark_bank_activity(id) ON DELETE RESTRICT,
+            CHECK(
+                (decision_kind = 'rejected' AND bank_activity_id IS NULL AND source_account_id IS NULL
+                    AND source_file_sha256 IS NULL AND source_locator IS NULL AND raw_record_sha256 IS NULL)
+                OR
+                (decision_kind = 'confirmed' AND bank_activity_id IS NOT NULL AND source_account_id IS NOT NULL
+                    AND source_file_sha256 IS NOT NULL AND source_locator IS NOT NULL AND raw_record_sha256 IS NOT NULL)
+            )
+        );
+        CREATE TABLE IF NOT EXISTS shark_owner_correction (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_slug TEXT NOT NULL,
+            correction_id TEXT NOT NULL,
+            record_kind TEXT NOT NULL CHECK(record_kind IN ('moneyIn','moneyOut')),
+            original_record_id TEXT NOT NULL,
+            original_transaction_id INTEGER NOT NULL,
+            reversal_record_id TEXT NOT NULL,
+            reversal_transaction_id INTEGER NOT NULL,
+            replacement_record_id TEXT,
+            replacement_transaction_id INTEGER,
+            reason TEXT NOT NULL,
+            corrected_by TEXT NOT NULL,
+            corrected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(company_slug, correction_id),
+            UNIQUE(company_slug, record_kind, original_record_id),
+            UNIQUE(company_slug, record_kind, reversal_record_id),
+            FOREIGN KEY(original_transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+            FOREIGN KEY(reversal_transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+            FOREIGN KEY(replacement_transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+            CHECK(
+                (replacement_record_id IS NULL AND replacement_transaction_id IS NULL)
+                OR
+                (replacement_record_id IS NOT NULL AND replacement_transaction_id IS NOT NULL)
+            )
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_shark_owner_correction_replacement
+            ON shark_owner_correction(company_slug, record_kind, replacement_record_id)
+            WHERE replacement_record_id IS NOT NULL;
         INSERT INTO shark_application_meta(id, schema_version)
-            VALUES(1, 3)
+            VALUES(1, 4)
             ON CONFLICT(id) DO UPDATE SET schema_version = excluded.schema_version
             WHERE shark_application_meta.schema_version < excluded.schema_version;
         "#,
@@ -277,11 +330,11 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     if let Err(error) = migration {
         let _ = db
             .conn()
-            .execute_batch("ROLLBACK TO shark_application_schema_v3; RELEASE shark_application_schema_v3");
+            .execute_batch("ROLLBACK TO shark_application_schema_v4; RELEASE shark_application_schema_v4");
         return Err(sqlite_error(error));
     }
     db.conn()
-        .execute_batch("RELEASE shark_application_schema_v3")
+        .execute_batch("RELEASE shark_application_schema_v4")
         .map_err(sqlite_error)?;
 
     let observed: i64 = db
@@ -305,7 +358,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
 }
 
 impl Books {
-    fn shark_savepoint<T>(
+    pub(super) fn shark_savepoint<T>(
         &self,
         name: &'static str,
         operation: impl FnOnce() -> FoundationResult<T>,
