@@ -16,7 +16,7 @@ Modules:
 - `primitives.rs` — bounded IDs/text, checked `Money`, sealed neutral draft-commercial proposals;
 - `date.rs` — validated Gregorian `CivilDate`, comparison and bounded calendar stepping;
 - `projects.rs` — project lifecycle, duplicate-safe project facts and deterministic summaries;
-- `timesheets.rs` — sealed time-entry lifecycle, duplicate-safe overlap detection, approved billable draft-line proposal;
+- `timesheets.rs` — sealed time-entry lifecycle, duplicate-safe overlap detection, atomic correction/supersession and approved billable draft-line proposal;
 - `mileage.rs` — sealed manual/odometer/route-derived evidence, explicit approval/billable lifecycle, effective-dated source-linked policy rates;
 - `recurrence.rs` — sealed restricted, bounded Shark recurrence generator, no timezone-offset resolution claim;
 - `forecast.rs` — sealed forecast events/templates, duplicate-safe deterministic low/expected/high traceable bands and scenario filtering;
@@ -46,7 +46,10 @@ Forecast ranges preserve low/expected/high bands rather than silently selecting 
 
 - terminal project states do not reopen in incubation;
 - duplicate project fact identities fail closed rather than double-counting;
-- approved time evidence is not edited; correction creates a new identity with `supersedes`;
+- approved unbilled time correction constructs the replacement first, then atomically moves the original to terminal `Superseded`;
+- a failed time correction leaves the original `Approved` and unchanged;
+- Superseded/Cancelled time evidence remains auditable but is excluded from active overlap reporting;
+- already-billed time cannot be corrected into a second billable source; downstream commercial correction owns that later case;
 - duplicate time-entry identities fail closed during overlap analysis;
 - mileage evidence/rates expose validated fields only through read accessors;
 - only approved + billable mileage may emit one draft commercial-line proposal; repeat emission fails closed;
@@ -59,7 +62,7 @@ Forecast ranges preserve low/expected/high bands rather than silently selecting 
 
 ## Static proof design
 
-`scripts/check_sbc8_batch2_operations_forecast_domain.py` will enforce:
+`scripts/check_sbc8_batch2_operations_forecast_domain.py` enforces:
 
 - exact changed-path allow-list relative to entry protected main;
 - active product/workspace/native/SBC-7 surfaces unchanged;
@@ -70,9 +73,10 @@ Forecast ranges preserve low/expected/high bands rather than silently selecting 
 - validated stateful structs retain private fields;
 - required focused regression names;
 - clean repository before/after runtime tests;
-- exact HEAD binding.
+- exact HEAD binding;
+- proof-harness guards remain present for mandatory expected HEAD, pre/post HEAD checks, exact changed-path capture and preserved evidence copy verification.
 
-`ci/run_sbc8_batch2_operations_forecast_windows.ps1` requires `-ExpectedHead`, runs the validator/tests using Rust 1.98.1, captures hashes/status/path evidence, builds a bounded ZIP, and preserves a second byte-identical evidence copy on the Desktop so a later failed rerun cannot silently erase the last complete archive.
+`ci/run_sbc8_batch2_operations_forecast_windows.ps1` requires `-ExpectedHead`, runs the validator/tests using Rust 1.98.1, captures hashes/status/exact changed-path evidence, builds a bounded ZIP, and preserves a second byte-identical evidence copy on the Desktop so a later failed rerun cannot silently erase the last complete archive.
 
 ## Candidate rule
 
