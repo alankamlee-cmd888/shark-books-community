@@ -15,6 +15,7 @@ $Downloads = Join-Path $env:USERPROFILE 'Downloads'
 $ZipPath = Join-Path $Downloads $ZipName
 $TmpZip = Join-Path $env:TEMP ('tmp_' + $ZipName)
 $Base = '6f85734d0e9e11089a1a47b7850a306a4ed7ba87'
+$ExpectedChangedPathCount = 15
 $ShortHead = $ExpectedHead.Substring(0, 8).ToLowerInvariant()
 $PreservedZip = Join-Path ([Environment]::GetFolderPath('Desktop')) ("SBC8_BATCH2_OPERATIONS_FORECAST_${ShortHead}_EVIDENCE.zip")
 
@@ -78,7 +79,14 @@ if ($Status) { throw "Repository dirty after proof: $Status" }
 
 $Lock = Join-Path $Repo 'incubator\sbc8-operations-forecast-core\Cargo.lock'
 $LockHash = (Get-FileHash -Algorithm SHA256 $Lock).Hash.ToLowerInvariant()
-$Changed = (& git -C $Repo diff --name-status "$Base..HEAD") -join "`n"
+
+$ChangedLines = @(& git -C $Repo diff --name-only "$Base..HEAD")
+if ($LASTEXITCODE -ne 0) { throw 'Unable to capture exact Batch 2 changed paths.' }
+$ChangedLines = @($ChangedLines | Where-Object { $_ -and $_.Trim() } | Sort-Object)
+if ($ChangedLines.Count -ne $ExpectedChangedPathCount) {
+    throw "Unexpected changed-path count during evidence capture. Expected $ExpectedChangedPathCount but found $($ChangedLines.Count)."
+}
+$Changed = $ChangedLines -join "`n"
 
 $Result = [ordered]@{
     schema = 'sbc8-batch2-operations-forecast-windows-v1'
@@ -89,6 +97,7 @@ $Result = [ordered]@{
     expected_candidate_head = $ExpectedHead.ToLowerInvariant()
     git_head = $Head
     git_status = $Status
+    changed_path_count = $ChangedLines.Count
     cargo_lock_sha256 = $LockHash
     rust_toolchain = $RustVersion
     proofs = [ordered]@{
