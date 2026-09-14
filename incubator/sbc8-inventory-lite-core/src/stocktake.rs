@@ -74,7 +74,7 @@ impl StocktakeObservation {
         movements: &[StockMovement],
         movement_id: EntityId,
     ) -> DomainResult<Option<StocktakeAdjustmentProposal>> {
-        if self.item_id != *item.id() || self.unit_id != *item.base_unit_id() {
+        if &self.item_id != item.id() || &self.unit_id != item.base_unit_id() {
             return Err(DomainError::InconsistentEvidence(
                 "stocktake observation does not match item",
             ));
