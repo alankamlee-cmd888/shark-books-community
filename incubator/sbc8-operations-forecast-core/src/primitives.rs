@@ -152,17 +152,68 @@ pub enum ProposalSourceKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DraftCommercialLineProposal {
-    pub id: EntityId,
-    pub source_kind: ProposalSourceKind,
-    pub source_id: EntityId,
-    pub project_id: Option<EntityId>,
-    pub description: BoundedText,
-    pub amount: Money,
+    id: EntityId,
+    source_kind: ProposalSourceKind,
+    source_id: EntityId,
+    project_id: Option<EntityId>,
+    description: BoundedText,
+    amount: Money,
+}
+
+impl DraftCommercialLineProposal {
+    pub(crate) fn new(
+        id: EntityId,
+        source_kind: ProposalSourceKind,
+        source_id: EntityId,
+        project_id: Option<EntityId>,
+        description: BoundedText,
+        amount: Money,
+    ) -> DomainResult<Self> {
+        if amount.minor() < 0 {
+            return Err(DomainError::InvalidValue("draft commercial line amount must be nonnegative"));
+        }
+        Ok(Self {
+            id,
+            source_kind,
+            source_id,
+            project_id,
+            description,
+            amount,
+        })
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn source_kind(&self) -> ProposalSourceKind {
+        self.source_kind
+    }
+
+    pub fn source_id(&self) -> &EntityId {
+        &self.source_id
+    }
+
+    pub fn project_id(&self) -> Option<&EntityId> {
+        self.project_id.as_ref()
+    }
+
+    pub fn description(&self) -> &BoundedText {
+        &self.description
+    }
+
+    pub fn amount(&self) -> Money {
+        self.amount
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn id(value: &str) -> EntityId {
+        EntityId::new(value).unwrap()
+    }
 
     #[test]
     fn bounded_ids_and_text_fail_closed() {
@@ -182,5 +233,18 @@ mod tests {
         let rate = Money::nonnegative(1000).unwrap();
         assert_eq!(checked_bill_for_minutes(rate, 30).unwrap().minor(), 500);
         assert_eq!(checked_bill_for_minutes(rate, 1).unwrap().minor(), 17);
+    }
+
+    #[test]
+    fn draft_commercial_line_proposal_rejects_negative_amount() {
+        let result = DraftCommercialLineProposal::new(
+            id("proposal"),
+            ProposalSourceKind::TimeEntry,
+            id("time"),
+            None,
+            BoundedText::new("work", 120).unwrap(),
+            Money::from_minor(-1),
+        );
+        assert!(result.is_err());
     }
 }
