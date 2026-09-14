@@ -4,7 +4,7 @@ Date: 2026-09-14
 Status: REFROZEN FOR PREACTIVATION INCUBATION AFTER SOURCE-REVIEW HARDENING
 Entry protected main: `6f85734d0e9e11089a1a47b7850a306a4ed7ba87`
 
-Source-review note: before any candidate/proof was frozen, the mileage-to-commercial seam was tightened to match the higher-level SBC-8 architecture rule that only explicitly approved + billable operational evidence may emit a draft commercial-line proposal. This is a pre-candidate hardening, not production scope expansion.
+Source-review note: before any candidate/proof was frozen, the mileage-to-commercial seam was tightened so only explicitly approved + billable operational evidence may emit a draft commercial-line proposal. The timesheet correction seam was also tightened so an approved unbilled entry becomes terminal `Superseded` only after a valid replacement is constructed; superseded or already-billed evidence cannot emit a second proposal. These are pre-candidate hardenings, not production scope expansion.
 
 ## 1. Purpose
 
@@ -49,9 +49,9 @@ Frozen state family:
 
 `Draft -> Approved -> BilledProposal`
 
-Draft may be cancelled. Approved entries are immutable commercial evidence; corrections create a new entry identity linked by `supersedes` rather than rewriting the approved record.
+`Approved -> Superseded` occurs only when a valid replacement correction has been constructed. Draft may be cancelled. Approved entries are immutable commercial evidence; corrections create a new Draft entry identity linked by `supersedes` rather than rewriting the approved record. The original moves to `Superseded` atomically only after replacement validation succeeds. Already-billed entries cannot be corrected back into a second billable source; any later correction belongs to the downstream commercial correction workflow.
 
-Overlapping intervals for the same worker are detected and reported deterministically. Duplicate time-entry identities fail closed. Overlap detection never silently deletes or edits a time entry.
+Overlapping intervals for the same worker are detected and reported deterministically. Duplicate time-entry identities fail closed. Cancelled and Superseded evidence is retained for audit but excluded from active overlap reporting. Overlap detection never silently deletes or edits a time entry.
 
 Only an Approved + billable entry may create one draft commercial-line proposal. The proposal is not an invoice and carries no posting authority.
 
@@ -146,7 +146,10 @@ At minimum prove:
 - deterministic profitability facts and duplicate-fact rejection;
 - valid duration calculation and invalid interval rejection;
 - overlap detection for same worker but not unrelated workers, with duplicate-entry rejection;
-- approved entry immutability/correction-by-new-identity;
+- approved unbilled correction uses a new identity and atomically supersedes the original;
+- failed correction leaves the original Approved;
+- Superseded evidence is excluded from active overlap reporting and cannot emit a proposal;
+- BilledProposal evidence cannot be corrected into a second billable source;
 - approved billable time -> draft line proposal only;
 - mileage manual baseline without route dependency;
 - odometer consistency rejection;
