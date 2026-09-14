@@ -1,8 +1,10 @@
 # SBC-8 Batch 2 — Operations + Forecast Domain Contract
 
 Date: 2026-09-14
-Status: FROZEN FOR PREACTIVATION INCUBATION
+Status: REFROZEN FOR PREACTIVATION INCUBATION AFTER SOURCE-REVIEW HARDENING
 Entry protected main: `6f85734d0e9e11089a1a47b7850a306a4ed7ba87`
+
+Source-review note: before any candidate/proof was frozen, the mileage-to-commercial seam was tightened to match the higher-level SBC-8 architecture rule that only explicitly approved + billable operational evidence may emit a draft commercial-line proposal. This is a pre-candidate hardening, not production scope expansion.
 
 ## 1. Purpose
 
@@ -15,6 +17,7 @@ Freeze the pure-domain contract for SBC-8D1/D2/D3 and SBC-8E1/E2 without couplin
 - Durations/distances are integer quantities with checked arithmetic.
 - Civil dates are validated Gregorian dates.
 - Domain APIs fail closed on invalid state transitions or arithmetic overflow.
+- Neutral draft-commercial proposals are sealed outputs of authorised domain transitions; callers cannot construct them by populating public fields.
 
 ## 3. Projects
 
@@ -26,7 +29,7 @@ Frozen lifecycle:
 
 `Planned/Active/Paused -> Cancelled` is explicit. Completed/Cancelled are terminal in this incubation.
 
-Project profitability/read facts are deterministic views over explicit inputs. Income and costs are money facts; time and mileage remain separately traceable operational quantities. Time/mileage never silently become costs or postings.
+Project profitability/read facts are deterministic views over explicit inputs. Income and costs are money facts; time and mileage remain separately traceable operational quantities. Time/mileage never silently become costs or postings. Duplicate project-fact identities are rejected rather than double-counted.
 
 ## 4. Timesheets
 
@@ -48,9 +51,9 @@ Frozen state family:
 
 Draft may be cancelled. Approved entries are immutable commercial evidence; corrections create a new entry identity linked by `supersedes` rather than rewriting the approved record.
 
-Overlapping intervals for the same worker are detected and reported deterministically. Overlap detection never silently deletes or edits a time entry.
+Overlapping intervals for the same worker are detected and reported deterministically. Duplicate time-entry identities fail closed. Overlap detection never silently deletes or edits a time entry.
 
-Only an Approved + billable entry may create a draft commercial-line proposal. The proposal is not an invoice and carries no posting authority.
+Only an Approved + billable entry may create one draft commercial-line proposal. The proposal is not an invoice and carries no posting authority.
 
 ## 5. Mileage
 
@@ -62,12 +65,20 @@ A mileage entry contains:
 - positive integer distance;
 - explicit distance unit;
 - source method: Manual, Odometer or RouteDerived;
+- explicit billable flag;
 - optional project/customer association;
-- optional odometer start/end evidence for Odometer method.
+- optional odometer start/end evidence for Odometer method;
+- explicit state.
 
-Odometer evidence must be internally consistent with the recorded distance. Manual mileage remains fully functional with no map, route or location service.
+Frozen state family:
 
-An official/policy rate is a separate effective-dated, source-linked domain object. The engine does not hard-code a tax rate and does not infer tax treatment.
+`Draft -> Approved -> BilledProposal`
+
+Draft may be cancelled. Odometer evidence must be internally consistent with the recorded distance. Manual mileage remains fully functional with no map, route or location service.
+
+An official/policy rate is a separate effective-dated, source-linked domain object. Rate identities are stable and duplicate identities or overlapping applicable rates fail closed. The engine does not hard-code a tax rate and does not infer tax treatment.
+
+Only Approved + billable mileage with an explicitly supplied applicable billing policy/rate may create one draft commercial-line proposal. Creating the proposal moves the entry to `BilledProposal`; repeat proposal creation is rejected.
 
 ## 6. Recurrence
 
@@ -89,7 +100,7 @@ Generation rules:
 - no unbounded enumeration;
 - end date and count are both enforced;
 - invalid dates fail closed;
-- monthly SameDay clamps to the last valid day only when explicitly requested by the contract; MonthEnd always selects the calendar month end;
+- monthly SameDay clamps to the last valid day only when explicitly requested by the contract; MonthEnd always selects the calendar month end, including the first generated occurrence;
 - leap years are Gregorian;
 - timezone offset/DST resolution is **not claimed** by this zero-dependency incubation engine and remains a later admitted-adapter concern.
 
@@ -107,9 +118,9 @@ A forecast event contains:
 - optional scenario identity;
 - explicit state: Planned, Skipped or LinkedActual.
 
-`LinkedActual` explicitly suppresses the forecast event from future projection so schedule-to-actual linkage cannot double count.
+`LinkedActual` explicitly suppresses the forecast event from future projection so schedule-to-actual linkage cannot double count. Duplicate forecast-event identities fail closed rather than double-counting.
 
-Forecast output is a chronological trace. Each point records low/expected/high balances and the exact contribution identities used. Range amounts propagate a deterministic balance band rather than hiding a midpoint assumption.
+Forecast output is a chronological trace. Each point records low/expected/high balances and the exact contribution identities used. Range amounts propagate a deterministic balance band while retaining the range in the contribution trace.
 
 ScenarioOnly events are included only when their scenario is explicitly enabled. KnownContractual and Expected events are baseline inputs unless skipped/linked actual.
 
@@ -120,7 +131,7 @@ Recurring events may create forecast-event proposals through the restricted recu
 Batch 2 may emit neutral proposal DTOs only:
 
 - approved billable time -> `DraftCommercialLineProposal`;
-- mileage where an explicit billing policy is supplied -> `DraftCommercialLineProposal`;
+- approved billable mileage + explicit applicable billing policy/rate -> `DraftCommercialLineProposal`;
 - recurrence -> planned forecast-event proposals.
 
 No proposal may issue a commercial document, mutate a ledger, approve a bill, reconcile a bank transaction, or call persistence/network/native APIs.
@@ -130,23 +141,27 @@ No proposal may issue a commercial document, mutate a ledger, approve a bill, re
 At minimum prove:
 
 - bounded IDs/text and checked money arithmetic;
+- sealed draft-commercial proposals reject invalid negative amounts;
 - project lifecycle fail-closed transitions;
-- deterministic profitability facts;
+- deterministic profitability facts and duplicate-fact rejection;
 - valid duration calculation and invalid interval rejection;
-- overlap detection for same worker but not unrelated workers;
+- overlap detection for same worker but not unrelated workers, with duplicate-entry rejection;
 - approved entry immutability/correction-by-new-identity;
 - approved billable time -> draft line proposal only;
 - mileage manual baseline without route dependency;
 - odometer consistency rejection;
-- effective-dated/source-linked rate selection;
+- effective-dated/source-linked rate selection, duplicate-rate and overlap rejection;
+- non-billable mileage cannot create a proposal;
+- approved billable mileage creates one proposal only;
 - recurrence hard cap, end/count bounds, leap day and month-end behaviour;
 - no unbounded recurrence;
 - deterministic forecast ordering and traceability;
+- duplicate forecast-event identity rejection;
 - range propagation into low/expected/high balances;
 - scenario inclusion/exclusion;
 - skipped and linked-actual events excluded from projection;
 - recurrence-to-forecast creates proposals only;
-- representative project -> time/mileage -> draft line and recurrence -> forecast journey remains domain-only.
+- representative project -> approved time/mileage -> draft line and recurrence -> forecast journey remains domain-only.
 
 ## 10. Explicit non-goals
 
