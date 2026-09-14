@@ -18,7 +18,7 @@ mod integration_tests {
     use crate::mileage::{
         Distance, DistanceUnit, MileageEntry, MileageRate, MileageSourceMethod,
     };
-    use crate::primitives::{BoundedText, EntityId, Money};
+    use crate::primitives::{BoundedText, EntityId, Money, ProposalSourceKind};
     use crate::projects::{summarize_project, Project, ProjectFact, ProjectFactKind};
     use crate::recurrence::{MonthlyPolicy, RecurrenceFrequency, RecurrenceSpec};
     use crate::timesheets::TimeEntry;
@@ -50,7 +50,8 @@ mod integration_tests {
         .unwrap();
         time.approve().unwrap();
         let time_line = time.to_draft_commercial_line_proposal(id("time-proposal")).unwrap();
-        assert_eq!(time_line.amount.minor(), 15_000);
+        assert_eq!(time_line.amount().minor(), 15_000);
+        assert_eq!(time_line.source_kind(), ProposalSourceKind::TimeEntry);
 
         let mileage = MileageEntry::new(
             id("mileage-1"),
@@ -78,7 +79,8 @@ mod integration_tests {
         let mileage_line = mileage
             .to_draft_commercial_line_proposal(id("mileage-proposal"), &mileage_rate)
             .unwrap();
-        assert_eq!(mileage_line.amount.minor(), 450);
+        assert_eq!(mileage_line.amount().minor(), 450);
+        assert_eq!(mileage_line.source_kind(), ProposalSourceKind::Mileage);
 
         let facts = vec![
             ProjectFact::money(id("income"), project.id().clone(), ProjectFactKind::Income, Money::from_minor(20_000)).unwrap(),
