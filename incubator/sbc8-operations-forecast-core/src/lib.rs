@@ -53,7 +53,7 @@ mod integration_tests {
         assert_eq!(time_line.amount().minor(), 15_000);
         assert_eq!(time_line.source_kind(), ProposalSourceKind::TimeEntry);
 
-        let mileage = MileageEntry::new(
+        let mut mileage = MileageEntry::new(
             id("mileage-1"),
             CivilDate::new(2026, 9, 14).unwrap(),
             text("Office", 200),
@@ -61,12 +61,14 @@ mod integration_tests {
             text("Project visit", 200),
             Distance::positive(10_000, DistanceUnit::MilliMile).unwrap(),
             MileageSourceMethod::Manual,
+            true,
             Some(project.id().clone()),
             Some(id("customer-1")),
             None,
             None,
         )
         .unwrap();
+        mileage.approve().unwrap();
         let mileage_rate = MileageRate::new(
             id("mileage-policy"),
             CivilDate::new(2026, 1, 1).unwrap(),
