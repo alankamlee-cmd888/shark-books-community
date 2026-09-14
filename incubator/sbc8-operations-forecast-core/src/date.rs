@@ -43,11 +43,38 @@ impl CivilDate {
     }
 
     pub fn add_days(self, days: u32) -> DomainResult<Self> {
-        let mut result = self;
-        for _ in 0..days {
-            result = result.next_day()?;
+        let mut year = self.year;
+        let mut month = self.month;
+        let mut day = self.day;
+        let mut remaining = days;
+
+        while remaining > 0 {
+            let max_day = days_in_month(year, month);
+            let days_left_in_month = u32::from(max_day - day);
+            if remaining <= days_left_in_month {
+                day = day
+                    .checked_add(u8::try_from(remaining).map_err(|_| DomainError::Overflow)?)
+                    .ok_or(DomainError::Overflow)?;
+                remaining = 0;
+                continue;
+            }
+
+            remaining = remaining
+                .checked_sub(days_left_in_month + 1)
+                .ok_or(DomainError::Overflow)?;
+            day = 1;
+            if month < 12 {
+                month += 1;
+            } else {
+                year = year.checked_add(1).ok_or(DomainError::Overflow)?;
+                if year > 9999 {
+                    return Err(DomainError::Overflow);
+                }
+                month = 1;
+            }
         }
-        Ok(result)
+
+        Self::new(year, month, day)
     }
 
     pub fn add_months_clamped(self, months: u32) -> DomainResult<Self> {
@@ -77,18 +104,6 @@ impl CivilDate {
         }
         let day = self.day.min(days_in_month(year, self.month));
         Self::new(year, self.month, day)
-    }
-
-    fn next_day(self) -> DomainResult<Self> {
-        let max_day = days_in_month(self.year, self.month);
-        if self.day < max_day {
-            return Self::new(self.year, self.month, self.day + 1);
-        }
-        if self.month < 12 {
-            return Self::new(self.year, self.month + 1, 1);
-        }
-        let next_year = self.year.checked_add(1).ok_or(DomainError::Overflow)?;
-        Self::new(next_year, 1, 1)
     }
 }
 
@@ -126,8 +141,17 @@ mod tests {
     }
 
     #[test]
-    fn add_days_crosses_year_boundary() {
+    fn add_days_crosses_month_and_year_boundaries() {
         let date = CivilDate::new(2026, 12, 31).unwrap();
         assert_eq!(date.add_days(1).unwrap(), CivilDate::new(2027, 1, 1).unwrap());
+        let jan = CivilDate::new(2028, 1, 31).unwrap();
+        assert_eq!(jan.add_days(30).unwrap(), CivilDate::new(2028, 3, 1).unwrap());
+    }
+
+    #[test]
+    fn large_day_step_remains_calendar_correct() {
+        let date = CivilDate::new(2026, 1, 1).unwrap();
+        assert_eq!(date.add_days(365).unwrap(), CivilDate::new(2027, 1, 1).unwrap());
+        assert_eq!(date.add_days(366 + 365).unwrap(), CivilDate::new(2028, 1, 2).unwrap());
     }
 }
