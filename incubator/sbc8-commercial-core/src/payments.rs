@@ -121,11 +121,10 @@ impl PaymentIntent {
                 ));
             }
         }
-        if self.provider_object_id.is_none() {
-            self.provider_object_id = event.provider_object_id.clone();
-        }
 
-        self.state = match (self.state, event.kind) {
+        // Validate the complete transition before mutating any intent state. An invalid
+        // verified event must fail closed without binding a provider object identity.
+        let next_state = match (self.state, event.kind) {
             (PaymentIntentState::Created, PaymentEventKind::Pending)
             | (PaymentIntentState::Pending, PaymentEventKind::Pending) => PaymentIntentState::Pending,
             (PaymentIntentState::Created, PaymentEventKind::Succeeded)
@@ -151,6 +150,13 @@ impl PaymentIntent {
                 ));
             }
         };
+        let next_provider_object_id = self
+            .provider_object_id
+            .clone()
+            .or_else(|| event.provider_object_id.clone());
+
+        self.state = next_state;
+        self.provider_object_id = next_provider_object_id;
         Ok(())
     }
 
@@ -327,6 +333,51 @@ mod tests {
         .unwrap();
         assert!(registry.record(conflict).is_err());
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn invalid_payment_event_does_not_mutate_intent() {
+        let mut intent = PaymentIntent::new(
+            EntityId::new("operation-1").unwrap(),
+            EntityId::new("invoice-1").unwrap(),
+            Money::positive(10_000).unwrap(),
+        )
+        .unwrap();
+        intent.apply_verified_event(&success_event(10_000)).unwrap();
+        let original_provider = intent.provider_object_id().cloned();
+
+        let invalid = PaymentEvent::new(
+            EntityId::new("event-refund-conflict").unwrap(),
+            EntityId::new("operation-1").unwrap(),
+            Money::positive(10_000).unwrap(),
+            PaymentEventKind::Failed,
+            Some(EntityId::new("provider-object-1").unwrap()),
+        )
+        .unwrap();
+        assert!(intent.apply_verified_event(&invalid).is_err());
+        assert_eq!(intent.state(), PaymentIntentState::Succeeded);
+        assert_eq!(intent.provider_object_id(), original_provider.as_ref());
+    }
+
+    #[test]
+    fn invalid_first_event_does_not_bind_provider_identity() {
+        let mut intent = PaymentIntent::new(
+            EntityId::new("operation-1").unwrap(),
+            EntityId::new("invoice-1").unwrap(),
+            Money::positive(10_000).unwrap(),
+        )
+        .unwrap();
+        let invalid = PaymentEvent::new(
+            EntityId::new("event-refund-first").unwrap(),
+            EntityId::new("operation-1").unwrap(),
+            Money::positive(10_000).unwrap(),
+            PaymentEventKind::Refunded,
+            Some(EntityId::new("provider-object-invalid").unwrap()),
+        )
+        .unwrap();
+        assert!(intent.apply_verified_event(&invalid).is_err());
+        assert_eq!(intent.state(), PaymentIntentState::Created);
+        assert!(intent.provider_object_id().is_none());
     }
 
     #[test]
