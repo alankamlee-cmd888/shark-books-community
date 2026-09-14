@@ -64,6 +64,11 @@ FORBIDDEN_RUNTIME_MARKERS = (
 )
 
 REQUIRED_ANCHORS = {
+    "src/primitives.rs": (
+        "pub struct DraftCommercialLineProposal",
+        "pub(crate) fn new(",
+        "pub fn amount(&self) -> Money",
+    ),
     "src/date.rs": (
         "pub struct CivilDate",
         "pub fn add_days",
@@ -115,6 +120,7 @@ REQUIRED_ANCHORS = {
 }
 
 SEALED_STRUCTS = {
+    "src/primitives.rs": ("DraftCommercialLineProposal",),
     "src/date.rs": ("CivilDate",),
     "src/projects.rs": ("Project", "ProjectFact"),
     "src/timesheets.rs": ("TimeEntry",),
@@ -127,6 +133,7 @@ REQUIRED_TESTS = (
     "bounded_ids_and_text_fail_closed",
     "checked_money_overflow_fails",
     "time_billing_rounding_is_deterministic",
+    "draft_commercial_line_proposal_rejects_negative_amount",
     "invalid_civil_dates_fail_closed",
     "leap_day_and_month_end_are_deterministic",
     "add_days_crosses_month_and_year_boundaries",
