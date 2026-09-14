@@ -13,17 +13,17 @@ pub enum TimeEntryState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeEntry {
-    pub id: EntityId,
-    pub worker_id: EntityId,
-    pub project_id: EntityId,
-    pub activity: BoundedText,
-    pub start_minute: i64,
-    pub end_minute: i64,
-    pub billable: bool,
-    pub billing_rate_per_hour: Option<Money>,
-    pub notes: BoundedText,
-    pub state: TimeEntryState,
-    pub supersedes: Option<EntityId>,
+    id: EntityId,
+    worker_id: EntityId,
+    project_id: EntityId,
+    activity: BoundedText,
+    start_minute: i64,
+    end_minute: i64,
+    billable: bool,
+    billing_rate_per_hour: Option<Money>,
+    notes: BoundedText,
+    state: TimeEntryState,
+    supersedes: Option<EntityId>,
 }
 
 impl TimeEntry {
@@ -45,6 +45,9 @@ impl TimeEntry {
         if billable && billing_rate_per_hour.is_none() {
             return Err(DomainError::InvalidValue("billable time requires a rate snapshot"));
         }
+        if !billable && billing_rate_per_hour.is_some() {
+            return Err(DomainError::InvalidValue("non-billable time must not carry a billing rate"));
+        }
         if let Some(rate) = billing_rate_per_hour {
             if rate.minor() < 0 {
                 return Err(DomainError::InvalidValue("billing rate must be nonnegative"));
@@ -63,6 +66,50 @@ impl TimeEntry {
             state: TimeEntryState::Draft,
             supersedes: None,
         })
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn worker_id(&self) -> &EntityId {
+        &self.worker_id
+    }
+
+    pub fn project_id(&self) -> &EntityId {
+        &self.project_id
+    }
+
+    pub fn activity(&self) -> &BoundedText {
+        &self.activity
+    }
+
+    pub fn start_minute(&self) -> i64 {
+        self.start_minute
+    }
+
+    pub fn end_minute(&self) -> i64 {
+        self.end_minute
+    }
+
+    pub fn billable(&self) -> bool {
+        self.billable
+    }
+
+    pub fn billing_rate_per_hour(&self) -> Option<Money> {
+        self.billing_rate_per_hour
+    }
+
+    pub fn notes(&self) -> &BoundedText {
+        &self.notes
+    }
+
+    pub fn state(&self) -> TimeEntryState {
+        self.state
+    }
+
+    pub fn supersedes(&self) -> Option<&EntityId> {
+        self.supersedes.as_ref()
     }
 
     pub fn duration_minutes(&self) -> DomainResult<u64> {
@@ -131,9 +178,10 @@ impl TimeEntry {
         let rate = self
             .billing_rate_per_hour
             .ok_or(DomainError::InvalidValue("billable time missing rate snapshot"))?;
-        let amount = checked_bill_for_minutes(rate, self.duration_minutes()?)?;
+        let duration = self.duration_minutes()?;
+        let amount = checked_bill_for_minutes(rate, duration)?;
         let description = BoundedText::new(
-            format!("{} ({} minutes)", self.activity.as_str(), self.duration_minutes()?),
+            format!("{} ({} minutes)", self.activity.as_str(), duration),
             240,
         )?;
         self.state = TimeEntryState::BilledProposal;
@@ -217,6 +265,22 @@ mod tests {
     }
 
     #[test]
+    fn non_billable_time_rejects_billing_rate() {
+        let result = TimeEntry::new(
+            id("t1"),
+            id("w1"),
+            id("p1"),
+            BoundedText::new("Internal work", 120).unwrap(),
+            100,
+            160,
+            false,
+            Some(Money::nonnegative(6000).unwrap()),
+            BoundedText::new("notes", 500).unwrap(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn overlap_detection_is_worker_scoped() {
         let entries = vec![entry("a", "w1", 100, 160), entry("b", "w1", 150, 200), entry("c", "w2", 150, 200)];
         let overlaps = detect_overlaps(&entries);
@@ -238,9 +302,9 @@ mod tests {
                 BoundedText::new("corrected", 500).unwrap(),
             )
             .unwrap();
-        assert_eq!(original.end_minute, 160);
-        assert_eq!(corrected.supersedes, Some(id("old")));
-        assert_eq!(corrected.state, TimeEntryState::Draft);
+        assert_eq!(original.end_minute(), 160);
+        assert_eq!(corrected.supersedes(), Some(&id("old")));
+        assert_eq!(corrected.state(), TimeEntryState::Draft);
     }
 
     #[test]
@@ -250,6 +314,6 @@ mod tests {
         let proposal = time.to_draft_commercial_line_proposal(id("proposal")).unwrap();
         assert_eq!(proposal.amount.minor(), 9000);
         assert_eq!(proposal.source_kind, ProposalSourceKind::TimeEntry);
-        assert_eq!(time.state, TimeEntryState::BilledProposal);
+        assert_eq!(time.state(), TimeEntryState::BilledProposal);
     }
 }
