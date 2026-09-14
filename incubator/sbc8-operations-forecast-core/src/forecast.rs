@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::date::CivilDate;
 use crate::primitives::{BoundedText, DomainError, DomainResult, EntityId, Money};
 use crate::recurrence::RecurrenceSpec;
@@ -54,14 +56,14 @@ pub enum ForecastEventState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForecastEvent {
-    pub id: EntityId,
-    pub date: CivilDate,
-    pub source_reference: BoundedText,
-    pub source_kind: ForecastSourceKind,
-    pub certainty: ForecastCertainty,
-    pub amount: AmountEstimate,
-    pub scenario_id: Option<EntityId>,
-    pub state: ForecastEventState,
+    id: EntityId,
+    date: CivilDate,
+    source_reference: BoundedText,
+    source_kind: ForecastSourceKind,
+    certainty: ForecastCertainty,
+    amount: AmountEstimate,
+    scenario_id: Option<EntityId>,
+    state: ForecastEventState,
 }
 
 impl ForecastEvent {
@@ -76,15 +78,7 @@ impl ForecastEvent {
         scenario_id: Option<EntityId>,
     ) -> DomainResult<Self> {
         amount.validate()?;
-        match certainty {
-            ForecastCertainty::ScenarioOnly if scenario_id.is_none() => {
-                return Err(DomainError::InvalidValue("scenario-only event requires scenario identity"));
-            }
-            ForecastCertainty::KnownContractual | ForecastCertainty::Expected if scenario_id.is_some() => {
-                return Err(DomainError::InvalidValue("baseline event must not carry scenario identity"));
-            }
-            _ => {}
-        }
+        validate_scenario_binding(certainty, scenario_id.as_ref())?;
         Ok(Self {
             id,
             date,
@@ -95,6 +89,38 @@ impl ForecastEvent {
             scenario_id,
             state: ForecastEventState::Planned,
         })
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn date(&self) -> CivilDate {
+        self.date
+    }
+
+    pub fn source_reference(&self) -> &BoundedText {
+        &self.source_reference
+    }
+
+    pub fn source_kind(&self) -> ForecastSourceKind {
+        self.source_kind
+    }
+
+    pub fn certainty(&self) -> ForecastCertainty {
+        self.certainty
+    }
+
+    pub fn amount(&self) -> &AmountEstimate {
+        &self.amount
+    }
+
+    pub fn scenario_id(&self) -> Option<&EntityId> {
+        self.scenario_id.as_ref()
+    }
+
+    pub fn state(&self) -> &ForecastEventState {
+        &self.state
     }
 
     pub fn skip(&mut self) -> DomainResult<()> {
@@ -111,6 +137,21 @@ impl ForecastEvent {
         }
         self.state = ForecastEventState::LinkedActual(actual_id);
         Ok(())
+    }
+}
+
+fn validate_scenario_binding(
+    certainty: ForecastCertainty,
+    scenario_id: Option<&EntityId>,
+) -> DomainResult<()> {
+    match certainty {
+        ForecastCertainty::ScenarioOnly if scenario_id.is_none() => {
+            Err(DomainError::InvalidValue("scenario-only item requires scenario identity"))
+        }
+        ForecastCertainty::KnownContractual | ForecastCertainty::Expected if scenario_id.is_some() => {
+            Err(DomainError::InvalidValue("baseline item must not carry scenario identity"))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -136,6 +177,13 @@ pub fn project_forecast(
     events: &[ForecastEvent],
     enabled_scenarios: &[EntityId],
 ) -> DomainResult<Vec<ForecastPoint>> {
+    let mut seen_event_ids = BTreeSet::new();
+    for event in events {
+        if !seen_event_ids.insert(event.id.clone()) {
+            return Err(DomainError::Duplicate("forecast event identity reused"));
+        }
+    }
+
     let mut eligible: Vec<&ForecastEvent> = events
         .iter()
         .filter(|event| event.state == ForecastEventState::Planned)
@@ -200,12 +248,12 @@ pub fn project_forecast(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScheduledForecastTemplate {
-    pub id: EntityId,
-    pub source_reference: BoundedText,
-    pub source_kind: ForecastSourceKind,
-    pub certainty: ForecastCertainty,
-    pub amount: AmountEstimate,
-    pub scenario_id: Option<EntityId>,
+    id: EntityId,
+    source_reference: BoundedText,
+    source_kind: ForecastSourceKind,
+    certainty: ForecastCertainty,
+    amount: AmountEstimate,
+    scenario_id: Option<EntityId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,18 +269,35 @@ pub struct ForecastEventProposal {
 }
 
 impl ScheduledForecastTemplate {
+    pub fn new(
+        id: EntityId,
+        source_reference: BoundedText,
+        source_kind: ForecastSourceKind,
+        certainty: ForecastCertainty,
+        amount: AmountEstimate,
+        scenario_id: Option<EntityId>,
+    ) -> DomainResult<Self> {
+        amount.validate()?;
+        validate_scenario_binding(certainty, scenario_id.as_ref())?;
+        Ok(Self {
+            id,
+            source_reference,
+            source_kind,
+            certainty,
+            amount,
+            scenario_id,
+        })
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
     pub fn propose(
         &self,
         recurrence: &RecurrenceSpec,
         max: usize,
     ) -> DomainResult<Vec<ForecastEventProposal>> {
-        self.amount.validate()?;
-        if self.certainty == ForecastCertainty::ScenarioOnly && self.scenario_id.is_none() {
-            return Err(DomainError::InvalidValue("scenario-only template requires scenario identity"));
-        }
-        if self.certainty != ForecastCertainty::ScenarioOnly && self.scenario_id.is_some() {
-            return Err(DomainError::InvalidValue("baseline template must not carry scenario identity"));
-        }
         recurrence
             .generate(max)?
             .into_iter()
@@ -338,6 +403,15 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_forecast_event_identity_is_rejected() {
+        let events = vec![
+            event("same", 10, ForecastCertainty::Expected, AmountEstimate::Exact(Money::from_minor(100)), None),
+            event("same", 11, ForecastCertainty::Expected, AmountEstimate::Exact(Money::from_minor(200)), None),
+        ];
+        assert!(project_forecast(Money::from_minor(1000), &events, &[]).is_err());
+    }
+
+    #[test]
     fn recurrence_to_forecast_creates_proposals_only() {
         let recurrence = RecurrenceSpec::new(
             CivilDate::new(2026, 9, 1).unwrap(),
@@ -349,17 +423,31 @@ mod tests {
             MonthlyPolicy::SameDayClamped,
         )
         .unwrap();
-        let template = ScheduledForecastTemplate {
-            id: id("rent"),
-            source_reference: text("office rent schedule"),
-            source_kind: ForecastSourceKind::RecurringCommitment,
-            certainty: ForecastCertainty::KnownContractual,
-            amount: AmountEstimate::Exact(Money::from_minor(-50_000)),
-            scenario_id: None,
-        };
+        let template = ScheduledForecastTemplate::new(
+            id("rent"),
+            text("office rent schedule"),
+            ForecastSourceKind::RecurringCommitment,
+            ForecastCertainty::KnownContractual,
+            AmountEstimate::Exact(Money::from_minor(-50_000)),
+            None,
+        )
+        .unwrap();
         let proposals = template.propose(&recurrence, 10).unwrap();
         assert_eq!(proposals.len(), 3);
         assert_eq!(proposals[0].id, id("rent-1"));
         assert_eq!(proposals[2].date, CivilDate::new(2026, 11, 1).unwrap());
+    }
+
+    #[test]
+    fn invalid_scenario_template_binding_fails_at_construction() {
+        let result = ScheduledForecastTemplate::new(
+            id("bad"),
+            text("bad binding"),
+            ForecastSourceKind::Other,
+            ForecastCertainty::ScenarioOnly,
+            AmountEstimate::Exact(Money::from_minor(10)),
+            None,
+        );
+        assert!(result.is_err());
     }
 }
