@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::primitives::{BoundedText, DomainError, DomainResult, EntityId, Money};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,10 +13,10 @@ pub enum ProjectState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Project {
-    pub id: EntityId,
-    pub name: BoundedText,
-    pub customer_id: Option<EntityId>,
-    pub state: ProjectState,
+    id: EntityId,
+    name: BoundedText,
+    customer_id: Option<EntityId>,
+    state: ProjectState,
 }
 
 impl Project {
@@ -29,6 +31,22 @@ impl Project {
             customer_id,
             state: ProjectState::Planned,
         }
+    }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn name(&self) -> &BoundedText {
+        &self.name
+    }
+
+    pub fn customer_id(&self) -> Option<&EntityId> {
+        self.customer_id.as_ref()
+    }
+
+    pub fn state(&self) -> ProjectState {
+        self.state
     }
 
     pub fn activate(&mut self) -> DomainResult<()> {
@@ -80,11 +98,11 @@ pub enum ProjectFactKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectFact {
-    pub id: EntityId,
-    pub project_id: EntityId,
-    pub kind: ProjectFactKind,
-    pub money: Option<Money>,
-    pub quantity: Option<u64>,
+    id: EntityId,
+    project_id: EntityId,
+    kind: ProjectFactKind,
+    money: Option<Money>,
+    quantity: Option<u64>,
 }
 
 impl ProjectFact {
@@ -123,6 +141,14 @@ impl ProjectFact {
             quantity: Some(quantity),
         })
     }
+
+    pub fn id(&self) -> &EntityId {
+        &self.id
+    }
+
+    pub fn project_id(&self) -> &EntityId {
+        &self.project_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,8 +168,12 @@ pub fn summarize_project(project_id: &EntityId, facts: &[ProjectFact]) -> Domain
     let mut time_minutes = 0_u64;
     let mut mileage_units = 0_u64;
     let mut contributing_fact_ids = Vec::new();
+    let mut seen_fact_ids = BTreeSet::new();
 
     for fact in facts.iter().filter(|fact| &fact.project_id == project_id) {
+        if !seen_fact_ids.insert(fact.id.clone()) {
+            return Err(DomainError::Duplicate("project fact identity reused"));
+        }
         match fact.kind {
             ProjectFactKind::Income => {
                 income = income.checked_add(fact.money.ok_or(DomainError::InvalidValue("income fact missing money"))?)?;
@@ -193,6 +223,7 @@ mod tests {
         project.pause().unwrap();
         project.activate().unwrap();
         project.complete().unwrap();
+        assert_eq!(project.state(), ProjectState::Completed);
         assert!(project.activate().is_err());
         assert!(project.cancel().is_err());
     }
@@ -211,5 +242,15 @@ mod tests {
         assert_eq!(summary.time_minutes, 90);
         assert_eq!(summary.mileage_units, 12_000);
         assert_eq!(summary.contributing_fact_ids.len(), 4);
+    }
+
+    #[test]
+    fn duplicate_project_fact_identity_is_rejected() {
+        let project_id = id("p1");
+        let facts = vec![
+            ProjectFact::money(id("same"), project_id.clone(), ProjectFactKind::Income, Money::from_minor(100)).unwrap(),
+            ProjectFact::money(id("same"), project_id.clone(), ProjectFactKind::Cost, Money::from_minor(20)).unwrap(),
+        ];
+        assert!(summarize_project(&project_id, &facts).is_err());
     }
 }
