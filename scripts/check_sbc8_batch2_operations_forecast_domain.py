@@ -9,6 +9,7 @@ import sys
 
 ENTRY_MAIN = "6f85734d0e9e11089a1a47b7850a306a4ed7ba87"
 CRATE = pathlib.Path("incubator/sbc8-operations-forecast-core")
+HARNESS = pathlib.Path("ci/run_sbc8_batch2_operations_forecast_windows.ps1")
 
 ALLOWED_PATHS = {
     "ci/run_sbc8_batch2_operations_forecast_windows.ps1",
@@ -85,9 +86,11 @@ REQUIRED_ANCHORS = {
     ),
     "src/timesheets.rs": (
         "pub enum TimeEntryState",
+        "Superseded",
         "pub struct TimeEntry",
         "pub fn state(&self) -> TimeEntryState",
         "pub fn correction",
+        "only approved unbilled evidence may be corrected by new identity",
         "pub fn to_draft_commercial_line_proposal",
         "pub fn detect_overlaps",
         "time entry identity reused",
@@ -148,7 +151,10 @@ REQUIRED_TESTS = (
     "non_billable_time_rejects_billing_rate",
     "overlap_detection_is_worker_scoped",
     "duplicate_time_entry_identity_is_rejected",
-    "approved_time_correction_uses_new_identity",
+    "approved_time_correction_supersedes_original_with_new_identity",
+    "failed_time_correction_does_not_mutate_original",
+    "overlap_detection_ignores_superseded_evidence",
+    "billed_time_cannot_be_recorrected_into_a_second_billable_source",
     "approved_billable_time_creates_draft_line_proposal_only",
     "manual_mileage_requires_no_route_or_location_dependency",
     "odometer_inconsistency_is_rejected",
@@ -171,6 +177,18 @@ REQUIRED_TESTS = (
     "recurrence_to_forecast_creates_proposals_only",
     "invalid_scenario_template_binding_fails_at_construction",
     "representative_project_time_mileage_and_forecast_flow_is_domain_only",
+)
+
+HARNESS_REQUIRED_MARKERS = (
+    "[string]$ExpectedHead",
+    "Wrong candidate HEAD before proof",
+    "Candidate HEAD changed during proof",
+    "--expected-head",
+    "expected_candidate_head",
+    "diff --name-only",
+    "CHANGED_PATHS.txt",
+    "Preserved evidence copy hash mismatch",
+    "Copy-Item $ZipPath $PreservedZip -Force",
 )
 
 
@@ -265,6 +283,10 @@ def main() -> int:
 
     for test_name in REQUIRED_TESTS:
         check(test_name in runtime, f"required focused regression declared: {test_name}")
+
+    harness = (repo / HARNESS).read_text(encoding="utf-8")
+    for marker in HARNESS_REQUIRED_MARKERS:
+        check(marker in harness, f"Windows proof harness retains guard: {marker}")
 
     status_before = git_text(repo, "status", "--porcelain")
     check(status_before == "", "repository clean before runtime gate")
