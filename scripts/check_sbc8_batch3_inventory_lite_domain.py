@@ -71,6 +71,8 @@ REQUIRED_ANCHORS = {
         "pub struct InventoryLocation",
         "pub enum StockMovementKind",
         "pub struct StockMovement",
+        "pub(crate) fn new_internal",
+        "transfer and stocktake movements require typed proposal workflows",
         "pub fn correction_adjustment",
         "pub fn signed_delta",
         "pub fn project_location_balance",
@@ -79,12 +81,14 @@ REQUIRED_ANCHORS = {
     ),
     "src/transfer.rs": (
         "pub struct StockTransferProposal",
+        "StockMovement::new_internal",
         "pub fn validate_transfer_pair",
         "transfer pair must conserve quantity",
     ),
     "src/stocktake.rs": (
         "pub struct StocktakeObservation",
         "pub struct StocktakeAdjustmentProposal",
+        "StockMovement::new_internal",
         "pub fn propose_adjustment",
     ),
 }
@@ -102,6 +106,7 @@ REQUIRED_TESTS = (
     "signed_balance_preserves_negative_values",
     "item_and_location_fields_are_validated_and_private",
     "movement_rejects_wrong_tracked_unit",
+    "direct_transfer_and_stocktake_movement_construction_is_rejected",
     "all_movement_kinds_have_deterministic_signed_effects",
     "duplicate_stock_movement_identity_is_rejected",
     "location_balance_is_deterministic_and_traceable",
