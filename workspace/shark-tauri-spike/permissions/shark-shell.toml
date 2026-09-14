@@ -33,4 +33,9 @@ commands.allow = [
   "owner_correction_preview",
   "owner_correction_confirm",
   "owner_correction_history",
+  "owner_contacts_list",
+  "owner_contacts_save",
+  "owner_settings_books_info",
+  "owner_settings_storage_root_select",
+  "owner_report_summary",
 ]
