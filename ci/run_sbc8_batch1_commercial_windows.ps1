@@ -1,3 +1,9 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[0-9a-fA-F]{40}$')]
+    [string]$ExpectedHead
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -23,10 +29,20 @@ $Python = Get-Command python -ErrorAction SilentlyContinue
 if ($null -eq $Python) { throw 'Python 3 is required for SBC-8 Batch 1 proof.' }
 if ($null -eq (Get-Command rustup -ErrorAction SilentlyContinue)) { throw 'rustup is required for SBC-8 Batch 1 proof.' }
 
+$EntryHead = (& git -C $Repo rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve repository HEAD before proof.' }
+if ($EntryHead.ToLowerInvariant() -ne $ExpectedHead.ToLowerInvariant()) {
+    throw "Wrong candidate HEAD before proof. Expected $ExpectedHead but found $EntryHead"
+}
+$EntryStatus = ((& git -C $Repo status --porcelain) -join "`n").Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Unable to read repository status before proof.' }
+if ($EntryStatus) { throw "Repository dirty before proof: $EntryStatus" }
+
 $Stdout = Join-Path $OutRoot 'VALIDATOR.stdout.txt'
 $Stderr = Join-Path $OutRoot 'VALIDATOR.stderr.txt'
 
 Write-Host "[INFO] SBC-8 Batch 1 proof repository: $Repo"
+Write-Host "[INFO] Expected candidate HEAD: $ExpectedHead"
 Write-Host "[INFO] Cargo target: $CargoTarget"
 
 $Process = Start-Process `
@@ -47,6 +63,9 @@ if ($Process.ExitCode -ne 0) { throw "SBC-8 Batch 1 validator failed with exit c
 
 $Head = (& git -C $Repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve repository HEAD.' }
+if ($Head.ToLowerInvariant() -ne $ExpectedHead.ToLowerInvariant()) {
+    throw "Candidate HEAD changed during proof. Expected $ExpectedHead but found $Head"
+}
 $Status = ((& git -C $Repo status --porcelain) -join "`n").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Unable to read repository status.' }
 if ($Status) { throw "Repository dirty after proof: $Status" }
@@ -61,11 +80,13 @@ $Result = [ordered]@{
     gate_pass = $true
     production_integration_authorised = $false
     entry_protected_main = $Base
+    expected_candidate_head = $ExpectedHead.ToLowerInvariant()
     git_head = $Head
     git_status = $Status
     cargo_lock_sha256 = $LockHash
     rust_toolchain = '1.98.1'
     proofs = [ordered]@{
+        exact_candidate_head = $true
         exact_changed_path_allowlist = $true
         active_sbc7_surfaces_unchanged = $true
         zero_runtime_dependencies = $true
@@ -80,6 +101,7 @@ $Result = [ordered]@{
     }
 }
 $Result | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 (Join-Path $OutRoot 'SBC8_BATCH1_COMMERCIAL_RESULT.json')
+Set-Content -Encoding ASCII (Join-Path $OutRoot 'EXPECTED_HEAD.txt') ($ExpectedHead.ToLowerInvariant() + "`n")
 Set-Content -Encoding ASCII (Join-Path $OutRoot 'GIT_HEAD.txt') ($Head + "`n")
 Set-Content -Encoding ASCII (Join-Path $OutRoot 'CARGO_LOCK_SHA256.txt') ($LockHash + "`n")
 Set-Content -Encoding UTF8 (Join-Path $OutRoot 'GIT_STATUS.txt') ($Status + "`n")
