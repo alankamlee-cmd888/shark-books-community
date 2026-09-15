@@ -33,6 +33,7 @@ const ACTION_REGISTRY_PARTS: &[&str] = &[
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/action_registry_v1_chunk24.jsonl")),
 ];
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionRegistryCounts {
     pub canonical_actions: usize,
@@ -41,6 +42,7 @@ pub struct ActionRegistryCounts {
     pub utterance_fixtures: usize,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionRegistryPolicy {
     pub voice_adds_no_new_authority: bool,
@@ -49,6 +51,7 @@ pub struct ActionRegistryPolicy {
     pub manual_text_voice_platform_intent_share_one_action_identity: bool,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionAlias {
     pub alias_action_id: String,
@@ -57,6 +60,7 @@ pub struct ActionAlias {
     pub label: String,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConfirmationClass {
@@ -65,6 +69,7 @@ pub enum ConfirmationClass {
     StrongExplicit,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SlotSource {
@@ -72,6 +77,7 @@ pub enum SlotSource {
     Context,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SlotSpec {
     pub slot_id: String,
@@ -82,6 +88,7 @@ pub struct SlotSpec {
     pub choices: Vec<String>,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionSpec {
     pub action_id: String,
@@ -108,6 +115,7 @@ pub struct ActionSpec {
     pub backend_state: String,
 }
 
+#[cfg_attr(feature = "action-contract-gen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActionRegistryDocument {
     pub schema: String,
