@@ -177,3 +177,39 @@ Before merge, mandatory evidence is:
 `PHASE_A_IMPLEMENTATION_AUTHORISED`  
 `NO_CODEMAGIC_BUILD_REQUIRED_YET`  
 `CANDIDATE_NOT_FROZEN`
+
+## 11. Phase-A test-wrapper amendment A
+
+Before candidate freeze, the Phase-A path envelope is amended to add exactly one compile/test-only path:
+
+18. `workspace/shark-foundation/tests/action_system_contract.rs`
+
+Purpose: compile and execute the new `src/action_system.rs` unit tests through Cargo immediately while the final public re-export in `src/lib.rs` is still being integrated. The wrapper re-exports only the existing Shark Foundation error/result types required by the module. It adds no dependency, runtime surface, persistence authority, Tauri command or accounting semantics.
+
+This amendment does not expand the final product boundary. `src/lib.rs` remains the authorised final production export point before candidate freeze.
+
+## 12. Phase-A registry storage amendment B
+
+The logical `action_registry_v1` remains one versioned registry, but its checked-in representation is sharded for bounded review and future action-level diffs. The earlier single-file data paths 6–7 are superseded before candidate freeze by:
+
+- `workspace/shark-foundation/data/action_registry_v1_manifest.json`;
+- `workspace/shark-foundation/data/action_registry_v1_part01.jsonl` through `action_registry_v1_part12.jsonl`.
+
+The manifest owns schema/count/policy/alias metadata. The twelve JSONL shards collectively own exactly 206 canonical `ActionSpec` rows. Voice fixtures are embedded on the same 175 canonical ActionSpec rows: exactly four utterances each, 700 total. This avoids a second voice authority file and makes it impossible for a separate voice corpus to invent Action IDs.
+
+The static gate must reconstruct all shards, prove the exact counts and prove every embedded voice utterance belongs to one canonical Action ID. The product semantics and voice-parity invariants are unchanged.
+
+## 13. Phase-A source review amendment C
+
+The logical `workspace/shark-foundation/src/action_system.rs` module is stored as a small include facade plus four review-bounded Rust source fragments:
+
+- `workspace/shark-foundation/src/action_system/part01.rs`;
+- `workspace/shark-foundation/src/action_system/part02.rs`;
+- `workspace/shark-foundation/src/action_system/part03.rs`;
+- `workspace/shark-foundation/src/action_system/part04.rs`.
+
+The fragments expand into one Rust module through `include!`; they are not independent runtime modules and do not create additional authority surfaces. This amendment exists to keep large generated/control-plane changes independently reviewable.
+
+## 14. Phase-A registry fragment amendment
+
+For connector-safe review and atomic Git assembly, the canonical 206 ActionSpec rows are stored as 24 small JSONL fragments named `workspace/shark-foundation/data/action_registry_v1_chunk01.jsonl` through `action_registry_v1_chunk24.jsonl`, plus `action_registry_v1_manifest.json`. This supersedes the provisional 12-part data layout only; semantic content/counts remain identical. The loader must consume all 24 fragments in fixed order and validation must prove exactly 206 unique canonical Action IDs and the frozen 175/32/143/700 voice invariants.
