@@ -140,4 +140,37 @@ The deterministic controller must clarify those collisions before execution.
 
 Runtime Action System Phase A uses no new dependency.
 
-Schemars and Typeshare are tooling/schema-generation decisions layered onto these exact Rust/data contracts before candidate freeze. This lets implementation proceed immediately without weakening exact-version admission discipline.
+The bounded generator lane now uses exact Schemars `1.2.2` plus the pre-authorised exact ts-rs `12.0.1` fallback. Typeshare `1.0.5` was rejected for the generator role because its generator CLI has a separately versioned package identity. Swift generation is deferred to later AppIntent/native work.
+
+ts-rs 12 requires `TS::decl(&Config)`. The tooling uses one fixed `Config::default()` and deliberately does not use environment-derived configuration, so generated TypeScript bytes are deterministic across proof machines.
+
+## Super-Gate applicability
+
+This first candidate proves **FT1 + FT2 only**. It does not claim the later FT3 UI groups.
+
+Mandatory evidence gates are:
+
+- SG0 immutable candidate preflight;
+- SG1 Action Stack / generated contract / dependency identity;
+- SG2 deterministic Controller + Attention Queue;
+- SG5 finite command/voice metadata parity;
+- SG6 inherited affected regressions;
+- SG7 platform compile;
+- SG8 final integrity.
+
+For this candidate, SG3 UI-A and SG4 UI-B are explicitly `NOT_APPLICABLE_TO_THIS_CANDIDATE`; they are not labelled PASS and remain future FT3 work.
+
+## Candidate-freeze boundary
+
+The implementation is not candidate-ready until one SHA contains all of:
+
+1. canonical registry/controller/tests;
+2. exact optional Schemars/ts-rs pins;
+3. Cargo-generated `workspace/Cargo.lock` bytes;
+4. generated JSON Schema and TypeScript bytes with successful locked reproduction check;
+5. public `pub mod action_system;` export from Shark Foundation;
+6. integrated static gate;
+7. Windows and Apple Super-Gate runners;
+8. manual Codemagic Apple workflow registration.
+
+No candidate SHA is frozen before those conditions are reconciled.
