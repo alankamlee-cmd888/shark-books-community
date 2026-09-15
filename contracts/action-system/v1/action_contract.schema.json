@@ -1,0 +1,583 @@
+{
+  "$defs": {
+    "ActionAlias": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "alias_action_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "preset": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "target_action_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias_action_id",
+        "target_action_id",
+        "preset",
+        "label"
+      ],
+      "title": "ActionAlias",
+      "type": "object"
+    },
+    "ActionRegistryCounts": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "aliases": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "canonical_actions": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "utterance_fixtures": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "voice_eligible_canonical_actions": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "canonical_actions",
+        "voice_eligible_canonical_actions",
+        "aliases",
+        "utterance_fixtures"
+      ],
+      "title": "ActionRegistryCounts",
+      "type": "object"
+    },
+    "ActionRegistryDocument": {
+      "$defs": {
+        "ActionAlias": {
+          "properties": {
+            "alias_action_id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "preset": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "target_action_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "alias_action_id",
+            "target_action_id",
+            "preset",
+            "label"
+          ],
+          "type": "object"
+        },
+        "ActionRegistryCounts": {
+          "properties": {
+            "aliases": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "canonical_actions": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "utterance_fixtures": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "voice_eligible_canonical_actions": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "canonical_actions",
+            "voice_eligible_canonical_actions",
+            "aliases",
+            "utterance_fixtures"
+          ],
+          "type": "object"
+        },
+        "ActionRegistryPolicy": {
+          "properties": {
+            "confirmation_cannot_be_lowered_by_invocation_surface": {
+              "type": "boolean"
+            },
+            "locked_actions_fail_closed": {
+              "type": "boolean"
+            },
+            "manual_text_voice_platform_intent_share_one_action_identity": {
+              "type": "boolean"
+            },
+            "voice_adds_no_new_authority": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "voice_adds_no_new_authority",
+            "locked_actions_fail_closed",
+            "confirmation_cannot_be_lowered_by_invocation_surface",
+            "manual_text_voice_platform_intent_share_one_action_identity"
+          ],
+          "type": "object"
+        },
+        "ActionSpec": {
+          "properties": {
+            "action_id": {
+              "type": "string"
+            },
+            "authority_class": {
+              "type": "string"
+            },
+            "authority_source": {
+              "type": "string"
+            },
+            "availability_state": {
+              "type": "string"
+            },
+            "backend_basis": {
+              "type": "string"
+            },
+            "backend_state": {
+              "type": "string"
+            },
+            "choice_hints": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "confirmation_class": {
+              "$ref": "#/$defs/ConfirmationClass"
+            },
+            "confirmation_policy": {
+              "type": "string"
+            },
+            "evidence_state": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "family": {
+              "type": "string"
+            },
+            "hard_boundary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "implementation_state": {
+              "type": "string"
+            },
+            "manual_label": {
+              "type": "string"
+            },
+            "owner_intent": {
+              "type": "string"
+            },
+            "required_slots": {
+              "items": {
+                "$ref": "#/$defs/SlotSpec"
+              },
+              "type": "array"
+            },
+            "utterances": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "voice_eligible": {
+              "type": "boolean"
+            },
+            "voice_parity": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_id",
+            "version",
+            "family",
+            "manual_label",
+            "owner_intent",
+            "implementation_state",
+            "availability_state",
+            "authority_class",
+            "confirmation_policy",
+            "confirmation_class",
+            "voice_parity",
+            "voice_eligible",
+            "backend_basis",
+            "authority_source",
+            "required_slots",
+            "backend_state"
+          ],
+          "type": "object"
+        },
+        "ConfirmationClass": {
+          "enum": [
+            "NONE",
+            "EXPLICIT",
+            "STRONG_EXPLICIT"
+          ],
+          "type": "string"
+        },
+        "SlotSource": {
+          "enum": [
+            "OWNER",
+            "CONTEXT"
+          ],
+          "type": "string"
+        },
+        "SlotSpec": {
+          "properties": {
+            "choices": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "slot_id": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/SlotSource"
+            }
+          },
+          "required": [
+            "slot_id",
+            "label",
+            "required",
+            "source"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ActionSpec"
+          },
+          "type": "array"
+        },
+        "aliases": {
+          "items": {
+            "$ref": "#/$defs/ActionAlias"
+          },
+          "type": "array"
+        },
+        "counts": {
+          "$ref": "#/$defs/ActionRegistryCounts"
+        },
+        "date": {
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ActionRegistryPolicy"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "source_authorities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "date",
+        "source_authorities",
+        "counts",
+        "policy",
+        "aliases",
+        "actions"
+      ],
+      "title": "ActionRegistryDocument",
+      "type": "object"
+    },
+    "ActionRegistryPolicy": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "confirmation_cannot_be_lowered_by_invocation_surface": {
+          "type": "boolean"
+        },
+        "locked_actions_fail_closed": {
+          "type": "boolean"
+        },
+        "manual_text_voice_platform_intent_share_one_action_identity": {
+          "type": "boolean"
+        },
+        "voice_adds_no_new_authority": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "voice_adds_no_new_authority",
+        "locked_actions_fail_closed",
+        "confirmation_cannot_be_lowered_by_invocation_surface",
+        "manual_text_voice_platform_intent_share_one_action_identity"
+      ],
+      "title": "ActionRegistryPolicy",
+      "type": "object"
+    },
+    "ActionSpec": {
+      "$defs": {
+        "ConfirmationClass": {
+          "enum": [
+            "NONE",
+            "EXPLICIT",
+            "STRONG_EXPLICIT"
+          ],
+          "type": "string"
+        },
+        "SlotSource": {
+          "enum": [
+            "OWNER",
+            "CONTEXT"
+          ],
+          "type": "string"
+        },
+        "SlotSpec": {
+          "properties": {
+            "choices": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "label": {
+              "type": "string"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "slot_id": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/SlotSource"
+            }
+          },
+          "required": [
+            "slot_id",
+            "label",
+            "required",
+            "source"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action_id": {
+          "type": "string"
+        },
+        "authority_class": {
+          "type": "string"
+        },
+        "authority_source": {
+          "type": "string"
+        },
+        "availability_state": {
+          "type": "string"
+        },
+        "backend_basis": {
+          "type": "string"
+        },
+        "backend_state": {
+          "type": "string"
+        },
+        "choice_hints": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confirmation_class": {
+          "$ref": "#/$defs/ConfirmationClass"
+        },
+        "confirmation_policy": {
+          "type": "string"
+        },
+        "evidence_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "family": {
+          "type": "string"
+        },
+        "hard_boundary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "implementation_state": {
+          "type": "string"
+        },
+        "manual_label": {
+          "type": "string"
+        },
+        "owner_intent": {
+          "type": "string"
+        },
+        "required_slots": {
+          "items": {
+            "$ref": "#/$defs/SlotSpec"
+          },
+          "type": "array"
+        },
+        "utterances": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "voice_eligible": {
+          "type": "boolean"
+        },
+        "voice_parity": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id",
+        "version",
+        "family",
+        "manual_label",
+        "owner_intent",
+        "implementation_state",
+        "availability_state",
+        "authority_class",
+        "confirmation_policy",
+        "confirmation_class",
+        "voice_parity",
+        "voice_eligible",
+        "backend_basis",
+        "authority_source",
+        "required_slots",
+        "backend_state"
+      ],
+      "title": "ActionSpec",
+      "type": "object"
+    },
+    "ConfirmationClass": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "enum": [
+        "NONE",
+        "EXPLICIT",
+        "STRONG_EXPLICIT"
+      ],
+      "title": "ConfirmationClass",
+      "type": "string"
+    },
+    "SlotSource": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "enum": [
+        "OWNER",
+        "CONTEXT"
+      ],
+      "title": "SlotSource",
+      "type": "string"
+    },
+    "SlotSpec": {
+      "$defs": {
+        "SlotSource": {
+          "enum": [
+            "OWNER",
+            "CONTEXT"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "choices": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "slot_id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SlotSource"
+        }
+      },
+      "required": [
+        "slot_id",
+        "label",
+        "required",
+        "source"
+      ],
+      "title": "SlotSpec",
+      "type": "object"
+    }
+  },
+  "$id": "urn:sharkbooks:action-system:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SharkBooks Action Registry Contract v1",
+  "x-shark-generators": {
+    "json_schema": "schemars 1.2.2",
+    "typescript": "ts-rs 12.0.1"
+  }
+}
