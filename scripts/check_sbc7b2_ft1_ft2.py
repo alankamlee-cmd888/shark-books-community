@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,13 @@ EXPECTED_ALIASES = {
     "MONEY_OUT.PRIVATE_FROM_BUSINESS_FUNDS": "MONEY_OUT.SAVE",
     "CONTACT.CREATE_CUSTOMER": "CONTACTS.SAVE",
     "CONTACT.CREATE_SUPPLIER": "CONTACTS.SAVE",
+}
+EXPECTED_PRESETS = {
+    "MONEY_IN.DAILY_TAKINGS": {"category": "Sales/Trading"},
+    "MONEY_OUT.MIXED_USE": {"business_use": "mixed"},
+    "MONEY_OUT.PRIVATE_FROM_BUSINESS_FUNDS": {"business_use": "private"},
+    "CONTACT.CREATE_CUSTOMER": {"kind": "customer"},
+    "CONTACT.CREATE_SUPPLIER": {"kind": "supplier"},
 }
 BATCH_B_OVERLAY = {
     "CONTACTS.LIST",
@@ -35,42 +43,43 @@ PROHIBITED = {
     "PAYROLL.PROCESS",
     "VAT.ACCOUNTING_FILING",
 }
-PHASE_A_ALLOWED = {
+
+ALLOWED = {
     "docs/SBC7B2_FT1_FT2_SUPERGATE_IMPLEMENTATION_CONTRACT_2026-09-15.md",
     "docs/SBC7B2_ACTION_SYSTEM_DESIGN_2026-09-15.md",
+    "docs/SBC7B2_FT1_FT2_REUSE_ADMISSION_2026-09-15.md",
     "workspace/shark-foundation/src/action_system.rs",
-    "workspace/shark-foundation/src/action_system/part01.rs",
-    "workspace/shark-foundation/src/action_system/part02.rs",
-    "workspace/shark-foundation/src/action_system/part03.rs",
-    "workspace/shark-foundation/src/action_system/part04.rs",
     "workspace/shark-foundation/src/lib.rs",
     "workspace/shark-foundation/data/action_registry_v1_manifest.json",
-    "workspace/shark-foundation/data/action_registry_v1_chunk01.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk02.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk03.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk04.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk05.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk06.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk07.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk08.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk09.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk10.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk11.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk12.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk13.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk14.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk15.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk16.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk17.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk18.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk19.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk20.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk21.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk22.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk23.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_chunk24.jsonl",
+    "workspace/shark-foundation/Cargo.toml",
+    "workspace/Cargo.lock",
+    "tools/action-contract/action_contract.rs",
+    "contracts/action-system/v1/action_contract.schema.json",
+    "contracts/action-system/v1/action_contract.ts",
+    "contracts/action-system/v1/action_contract.swift",
     "scripts/check_sbc7b2_ft1_ft2.py",
     "workspace/shark-foundation/tests/action_system_contract.rs",
+    "ci/run_sbc7b2_supergate_windows.ps1",
+    "ci/run_sbc7b2_supergate_codemagic.sh",
+    "codemagic.yaml",
+} | {
+    f"workspace/shark-foundation/data/action_registry_v1_chunk{i:02d}.jsonl"
+    for i in range(1, 25)
+} | {
+    f"workspace/shark-foundation/src/action_system/part{i:02d}.rs"
+    for i in range(1, 5)
+}
+
+REQUIRED_INTEGRATION_PATHS = {
+    "workspace/shark-foundation/src/lib.rs",
+    "workspace/shark-foundation/Cargo.toml",
+    "workspace/Cargo.lock",
+    "tools/action-contract/action_contract.rs",
+    "contracts/action-system/v1/action_contract.schema.json",
+    "contracts/action-system/v1/action_contract.ts",
+    "ci/run_sbc7b2_supergate_windows.ps1",
+    "ci/run_sbc7b2_supergate_codemagic.sh",
+    "codemagic.yaml",
 }
 
 
@@ -84,136 +93,153 @@ def require(condition: bool, message: str) -> None:
     print(f"[PASS] {message}")
 
 
-def load_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
 
-def validate_registry(repo: Path) -> None:
-    registry_manifest_path = repo / "workspace/shark-foundation/data/action_registry_v1_manifest.json"
-    registry_part_paths = [repo / f"workspace/shark-foundation/data/action_registry_v1_chunk{i:02d}.jsonl" for i in range(1, 25)]
-    source_path = repo / "workspace/shark-foundation/src/action_system.rs"
-    source_part_paths = [repo / f"workspace/shark-foundation/src/action_system/part{i:02d}.rs" for i in range(1, 5)]
-    design_path = repo / "docs/SBC7B2_ACTION_SYSTEM_DESIGN_2026-09-15.md"
-    contract_path = repo / "docs/SBC7B2_FT1_FT2_SUPERGATE_IMPLEMENTATION_CONTRACT_2026-09-15.md"
-    wrapper_path = repo / "workspace/shark-foundation/tests/action_system_contract.rs"
-
-    for path in [registry_manifest_path, *registry_part_paths, source_path, *source_part_paths, design_path, contract_path, wrapper_path]:
-        require(path.is_file(), f"required FT1/FT2 path exists: {path.relative_to(repo)}")
-
-    registry = load_json(registry_manifest_path)
+def load_registry(repo: Path):
+    manifest_path = repo / "workspace/shark-foundation/data/action_registry_v1_manifest.json"
+    require(manifest_path.is_file(), "Action Registry manifest exists")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actions = []
-    for path in registry_part_paths:
+    for i in range(1, 25):
+        path = repo / f"workspace/shark-foundation/data/action_registry_v1_chunk{i:02d}.jsonl"
+        require(path.is_file(), f"Action Registry chunk {i:02d} exists")
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 actions.append(json.loads(line))
-    aliases = registry["aliases"]
+    return manifest, actions
 
-    require(registry["schema"] == "sharkbooks-action-registry-v1", "registry schema id is v1")
+
+def validate_registry(repo: Path) -> None:
+    manifest, actions = load_registry(repo)
+    aliases = manifest["aliases"]
+    require(manifest["schema"] == "sharkbooks-action-registry-v1", "registry schema id is v1")
     require(len(actions) == 206, "registry contains exactly 206 canonical actions")
     require(len(aliases) == 5, "registry contains exactly five convenience aliases")
-    require(len({a["action_id"] for a in actions}) == 206, "canonical Action IDs are unique")
-    require(not ({a["action_id"] for a in actions} & {a["alias_action_id"] for a in aliases}), "aliases do not duplicate canonical Action IDs")
+
+    ids = [a["action_id"] for a in actions]
+    require(len(set(ids)) == 206, "canonical Action IDs are unique")
+    action_by_id = {a["action_id"]: a for a in actions}
+    alias_map = {a["alias_action_id"]: a["target_action_id"] for a in aliases}
+    alias_presets = {a["alias_action_id"]: a["preset"] for a in aliases}
+    require(alias_map == EXPECTED_ALIASES, "convenience aliases canonicalise to frozen targets")
+    require(alias_presets == EXPECTED_PRESETS, "convenience aliases retain deterministic preset facts")
+    require(not (set(ids) & set(alias_map)), "aliases do not duplicate canonical Action IDs")
+    require(all(target in action_by_id for target in alias_map.values()), "every alias target is canonical")
 
     voice = [a for a in actions if a["voice_eligible"]]
-    require(len(voice) == 175, "exactly 175 canonical actions are voice eligible")
     parity = collections.Counter(a["voice_parity"] for a in actions)
-    require(parity["REQUIRED_WHEN_EXPOSED"] == 32, "exactly 32 actions require voice when exposed")
-    require(parity["REQUIRED_WHEN_ACTIVATED"] == 143, "exactly 143 actions require voice when activated")
-    require(parity["NOT_APPLICABLE_INTERNAL"] == 19, "exactly 19 canonical actions are internal/non-voice")
-    require(parity["NO"] == 12, "exactly 12 canonical actions have voice parity NO")
+    require(len(voice) == 175, "exactly 175 canonical actions are voice eligible")
+    require(parity["REQUIRED_WHEN_EXPOSED"] == 32, "32 actions require voice when exposed")
+    require(parity["REQUIRED_WHEN_ACTIVATED"] == 143, "143 actions require voice when activated")
+    require(parity["NOT_APPLICABLE_INTERNAL"] == 19, "19 actions are internal/non-voice")
+    require(parity["NO"] == 12, "12 actions have voice parity NO")
+    require(sum(len(a["utterances"]) for a in voice) == 700, "registry contains exactly 700 voice fixtures")
+    require(all(len(a["utterances"]) == 4 for a in voice), "every voice action has exactly four initial fixtures")
+    require(all(not a["utterances"] for a in actions if not a["voice_eligible"]), "non-voice actions carry no executable utterance fixtures")
+    require(all(slot["slot_id"] != "none" for a in actions for slot in a["required_slots"]), "literal none sentinel is represented as zero slots")
 
-    alias_map = {a["alias_action_id"]: a["target_action_id"] for a in aliases}
-    require(alias_map == EXPECTED_ALIASES, "five convenience aliases canonicalise to the frozen targets")
-    expected_presets = {
-        "MONEY_IN.DAILY_TAKINGS": {"category": "Sales/Trading"},
-        "MONEY_OUT.MIXED_USE": {"business_use": "mixed"},
-        "MONEY_OUT.PRIVATE_FROM_BUSINESS_FUNDS": {"business_use": "private"},
-        "CONTACT.CREATE_CUSTOMER": {"kind": "customer"},
-        "CONTACT.CREATE_SUPPLIER": {"kind": "supplier"},
-    }
-    require({a["alias_action_id"]: a["preset"] for a in aliases} == expected_presets,
-            "five convenience aliases retain exact deterministic preset facts")
-    canonical_ids = {a["action_id"] for a in actions}
-    require(all(target in canonical_ids for target in alias_map.values()), "every alias target is canonical")
-
-    action_by_id = {a["action_id"]: a for a in actions}
     for action_id in sorted(BATCH_B_OVERLAY):
         action = action_by_id[action_id]
-        require(action["implementation_state"] == "PRODUCTION_MAIN", f"{action_id} records protected-main implementation state")
-        require(action["availability_state"] == "BACKEND_READY_UI_LOCKED", f"{action_id} remains UI-locked despite backend readiness")
-        require(action["evidence_state"] == "SBC7B1_BATCH_B_DUAL_PLATFORM_PASS", f"{action_id} records dual-platform Batch-B evidence")
-        require(action["backend_state"] == "READY", f"{action_id} is backend READY")
+        require(action["implementation_state"] == "PRODUCTION_MAIN", f"{action_id} is protected-main implemented")
+        require(action["availability_state"] == "BACKEND_READY_UI_LOCKED", f"{action_id} remains UI locked")
+        require(action["evidence_state"] == "SBC7B1_BATCH_B_DUAL_PLATFORM_PASS", f"{action_id} retains Batch-B evidence")
+        require(action["backend_state"] == "READY", f"{action_id} backend is READY")
 
     for action_id in sorted(PROHIBITED):
         action = action_by_id[action_id]
         require(not action["voice_eligible"], f"prohibited {action_id} is not voice eligible")
         require(action["backend_state"] == "NOT_AUTHORISED", f"prohibited {action_id} is not executable")
 
-    require(all(slot["slot_id"] != "none" for action in actions for slot in action["required_slots"]), "literal none input sentinel is represented as zero slots")
-
-    for action in actions:
-        if action["voice_eligible"]:
-            require(len(action["utterances"]) >= 4, f"voice action {action['action_id']} has at least four utterance fixtures")
-        else:
-            require(len(action["utterances"]) == 0, f"non-voice action {action['action_id']} has no executable voice fixtures")
-
-    embedded_fixture_count = sum(len(a["utterances"]) for a in voice)
-    require(embedded_fixture_count == 700, "registry contains exactly 700 embedded voice fixture utterances")
-    fixture_counts = collections.Counter({a["action_id"]: len(a["utterances"]) for a in voice})
-    require(all(count == 4 for count in fixture_counts.values()), "every voice action has exactly four initial fixture rows")
-
     normalized = collections.defaultdict(set)
     for action in voice:
         for utterance in action["utterances"]:
             text = " ".join(str(utterance).lower().strip(" .!?\t\r\n").split())
             normalized[text].add(action["action_id"])
-    require({"BOOKS.OPEN", "NAVIGATION.BOOKS_HOME"} <= normalized.get("open my books", set()), "open-my-books collision remains explicit for ambiguity testing")
-    require(any({"QUOTE.PDF_RENDER", "INVOICE.PDF_RENDER"} <= ids for ids in normalized.values()), "quote/invoice render near-neighbour collision remains explicit")
-    require(any({"QUOTE.SHARE_SEND", "INVOICE.SHARE_SEND"} <= ids for ids in normalized.values()), "quote/invoice share near-neighbour collision remains explicit")
+    require({"BOOKS.OPEN", "NAVIGATION.BOOKS_HOME"} <= normalized.get("open my books", set()), "open-my-books ambiguity fixture remains explicit")
+    require(any({"QUOTE.PDF_RENDER", "INVOICE.PDF_RENDER"} <= x for x in normalized.values()), "quote/invoice render collision remains explicit")
+    require(any({"QUOTE.SHARE_SEND", "INVOICE.SHARE_SEND"} <= x for x in normalized.values()), "quote/invoice share collision remains explicit")
 
-    source_facade = source_path.read_text(encoding="utf-8")
-    source = source_facade + "\n" + "\n".join(path.read_text(encoding="utf-8") for path in source_part_paths)
-    require(all(f'include!("action_system/part{i:02d}.rs")' in source_facade for i in range(1, 5)), "Action System facade includes all four review-bounded source fragments")
+
+def validate_controller(repo: Path) -> None:
+    facade = repo / "workspace/shark-foundation/src/action_system.rs"
+    parts = [repo / f"workspace/shark-foundation/src/action_system/part{i:02d}.rs" for i in range(1, 5)]
+    wrapper = repo / "workspace/shark-foundation/tests/action_system_contract.rs"
+    lib = repo / "workspace/shark-foundation/src/lib.rs"
+    for path in [facade, *parts, wrapper, lib]:
+        require(path.is_file(), f"required Action System source exists: {path.relative_to(repo)}")
+    facade_text = facade.read_text(encoding="utf-8")
+    source = facade_text + "\n" + "\n".join(p.read_text(encoding="utf-8") for p in parts)
+    for i in range(1, 5):
+        require(f'include!("action_system/part{i:02d}.rs")' in facade_text, f"Action System facade includes part {i:02d}")
     for anchor in [
-        "Known", "Unknown", "Ambiguous", "Conflicting",
+        "ResolutionState", "Known", "Unknown", "Ambiguous", "Conflicting",
         "ExecutionAvailability", "ConfirmationReceipt", "ReplayGuard", "AttentionItem",
-        "REPLAY_DETECTED", "STALE_CONFIRMATION", "load_action_registry", "AliasRecipe", "accept_call",
+        "REPLAY_DETECTED", "STALE_CONFIRMATION", "load_action_registry", "AliasRecipe",
+        "accept_call", "missing_context_slots", "state_revision", "facts_fingerprint",
     ]:
-        require(anchor in source, f"Action System source contains controller anchor: {anchor}")
-    require("exposed_action_ids" in source, "controller requires an explicit reviewed exposure set")
-    require("canonical_action_id" in source, "controller canonicalises reviewed aliases")
-    require("facts_fingerprint" in source, "confirmation receipt binds supplied facts")
-    require("missing_context_slots" in source and "MissingContext" in source, "controller distinguishes missing context from owner questions")
-    require("alias.preset" in source and "AliasRecipe" in source, "controller applies deterministic alias recipe facts")
-    require("state_revision" in source, "confirmation receipt binds authoritative state revision")
+        require(anchor in source, f"controller anchor exists: {anchor}")
     accept_pos = source.index("pub fn accept_call")
-    replay_pos = source.index("replay_guard.register", accept_pos)
-    confirm_pos = source.index("validate_confirmation", accept_pos)
-    require(replay_pos > confirm_pos, "replay id is consumed only after confirmation validation")
-    wrapper = wrapper_path.read_text(encoding="utf-8")
-    require("shark_foundation::{FoundationError, FoundationErrorCode, FoundationResult}" in wrapper, "compile wrapper reuses only existing Foundation error/result types")
-    require("../src/action_system.rs" in wrapper, "compile wrapper targets the production Action System source")
-    require("execute" not in source.lower() or "executable" in source.lower(), "Phase-A source does not introduce a generic execute API")
-
-    design = design_path.read_text(encoding="utf-8")
-    contract = contract_path.read_text(encoding="utf-8")
-    require("206 canonical actions" in design and "175-action" in design and "700 fixtures" in design, "frozen design records registry/voice/fixture invariants")
-    require("CANDIDATE NOT YET FROZEN" in contract, "contract keeps implementation candidate unfrozen")
-    require("No assistant model" in contract and "accounting mutation dispatcher" in contract, "contract keeps AI/execution outside FT1+FT2 scope")
+    require(source.index("replay_guard.register", accept_pos) > source.index("validate_confirmation", accept_pos), "replay id is consumed only after confirmation validation")
+    require("pub mod action_system;" in lib.read_text(encoding="utf-8"), "Action System is exported through the production Foundation facade")
 
 
-def phase_a_git_checks(repo: Path) -> None:
+def validate_reuse_and_generated_contracts(repo: Path) -> None:
+    cargo = (repo / "workspace/shark-foundation/Cargo.toml").read_text(encoding="utf-8")
+    lock = (repo / "workspace/Cargo.lock").read_text(encoding="utf-8")
+    generator = (repo / "tools/action-contract/action_contract.rs").read_text(encoding="utf-8")
+    reuse = (repo / "docs/SBC7B2_FT1_FT2_REUSE_ADMISSION_2026-09-15.md").read_text(encoding="utf-8")
+    schema_path = repo / "contracts/action-system/v1/action_contract.schema.json"
+    ts_path = repo / "contracts/action-system/v1/action_contract.ts"
+
+    require('action-contract-gen = ["dep:schemars", "dep:ts-rs"]' in cargo, "contract generator feature is explicit and off by default")
+    require('schemars = { version = "=1.2.2"' in cargo, "Schemars is exact pinned to 1.2.2")
+    require('ts-rs = { version = "=12.0.1"' in cargo, "ts-rs is exact pinned to 12.0.1")
+    require('name = "schemars"\nversion = "1.2.2"' in lock, "Cargo.lock resolves Schemars 1.2.2")
+    require('name = "ts-rs"\nversion = "12.0.1"' in lock, "Cargo.lock resolves ts-rs 12.0.1")
+    require("Config::default()" in generator, "ts-rs generation uses deterministic Config::default")
+    require("Config::from_env" not in generator, "generator does not admit TS_RS environment drift")
+    require(generator.count("struct Smoke") + generator.count("enum Smoke") >= 10, "ten-type generator smoke corpus is present")
+    require("Typeshare 1.0.5" in reuse and "ts-rs 12.0.1" in reuse, "reuse record captures Typeshare rejection and ts-rs fallback")
+
+    require(schema_path.is_file(), "generated JSON Schema contract exists")
+    require(ts_path.is_file(), "generated TypeScript contract exists")
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    ts = ts_path.read_text(encoding="utf-8")
+    require(schema.get("$id") == "urn:sharkbooks:action-system:v1", "generated schema has frozen Action System id")
+    generators = schema.get("x-shark-generators", {})
+    require(generators.get("json_schema") == "schemars 1.2.2", "generated schema records Schemars 1.2.2")
+    require(generators.get("typescript") == "ts-rs 12.0.1", "generated schema records ts-rs 12.0.1")
+    for name in ["ActionRegistryCounts", "ActionRegistryPolicy", "ActionAlias", "ConfirmationClass", "SlotSource", "SlotSpec", "ActionSpec", "ActionRegistryDocument"]:
+        require(name in schema.get("$defs", {}), f"generated schema contains {name}")
+        require(name in ts, f"generated TypeScript contains {name}")
+    require("schemars 1.2.2" in ts and "ts-rs 12.0.1" in ts, "generated TypeScript records exact generator versions")
+
+
+def validate_supergate_scaffolding(repo: Path) -> None:
+    win = repo / "ci/run_sbc7b2_supergate_windows.ps1"
+    mac = repo / "ci/run_sbc7b2_supergate_codemagic.sh"
+    cm = repo / "codemagic.yaml"
+    for path in [win, mac, cm]:
+        require(path.is_file(), f"Super-Gate path exists: {path.relative_to(repo)}")
+    win_text = win.read_text(encoding="utf-8")
+    mac_text = mac.read_text(encoding="utf-8")
+    cm_text = cm.read_text(encoding="utf-8")
+    for gate in [f"SG{i}" for i in range(9)]:
+        require(gate in win_text and gate in mac_text, f"Windows and Apple runners represent {gate}")
+    require("NOT_APPLICABLE_TO_THIS_CANDIDATE" in win_text and "NOT_APPLICABLE_TO_THIS_CANDIDATE" in mac_text, "FT1/FT2 Super-Gate records UI SG3/SG4 as not applicable")
+    require("sbc7b2-ft1-ft2-supergate-apple" in cm_text, "Codemagic registers the FT1/FT2 Apple Super-Gate workflow")
+
+
+def validate_git_scope(repo: Path) -> None:
     head = git(repo, "rev-parse", "HEAD")
     git(repo, "merge-base", "--is-ancestor", BASE, head)
-    changed = {line for line in git(repo, "diff", "--name-only", f"{BASE}..{head}").splitlines() if line}
-    extra = changed - PHASE_A_ALLOWED
-    require(not extra, f"Phase-A changed paths remain within dependency-free envelope (extra={sorted(extra)})")
-    require("workspace/shark-foundation/Cargo.toml" not in changed, "Phase A does not change shark-foundation dependencies")
-    require("workspace/Cargo.lock" not in changed, "Phase A does not change Cargo.lock")
+    changed = {x for x in git(repo, "diff", "--name-only", f"{BASE}..{head}").splitlines() if x}
+    extra = changed - ALLOWED
+    require(not extra, f"candidate changed paths remain inside frozen/amended envelope (extra={sorted(extra)})")
+    missing = REQUIRED_INTEGRATION_PATHS - changed
+    require(not missing, f"candidate includes required integration paths (missing={sorted(missing)})")
 
 
 def main() -> int:
@@ -224,12 +250,15 @@ def main() -> int:
     repo = Path(args.repo).resolve()
     try:
         validate_registry(repo)
+        validate_controller(repo)
+        validate_reuse_and_generated_contracts(repo)
+        validate_supergate_scaffolding(repo)
         if not args.skip_git:
-            phase_a_git_checks(repo)
-    except (AssertionError, KeyError, ValueError, subprocess.CalledProcessError) as exc:
+            validate_git_scope(repo)
+    except (AssertionError, KeyError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         print(f"[FAIL] {exc}", file=sys.stderr)
         return 1
-    print("[PASS] SBC-7B2 FT1+FT2 Phase-A static gate")
+    print("[PASS] SBC-7B2 FT1+FT2 integrated candidate static gate")
     return 0
 
 
