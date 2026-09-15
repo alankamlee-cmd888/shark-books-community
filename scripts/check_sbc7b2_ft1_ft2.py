@@ -45,18 +45,30 @@ PHASE_A_ALLOWED = {
     "workspace/shark-foundation/src/action_system/part04.rs",
     "workspace/shark-foundation/src/lib.rs",
     "workspace/shark-foundation/data/action_registry_v1_manifest.json",
-    "workspace/shark-foundation/data/action_registry_v1_part01.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part02.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part03.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part04.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part05.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part06.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part07.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part08.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part09.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part10.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part11.jsonl",
-    "workspace/shark-foundation/data/action_registry_v1_part12.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk01.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk02.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk03.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk04.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk05.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk06.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk07.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk08.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk09.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk10.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk11.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk12.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk13.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk14.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk15.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk16.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk17.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk18.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk19.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk20.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk21.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk22.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk23.jsonl",
+    "workspace/shark-foundation/data/action_registry_v1_chunk24.jsonl",
     "scripts/check_sbc7b2_ft1_ft2.py",
     "workspace/shark-foundation/tests/action_system_contract.rs",
 }
@@ -82,7 +94,7 @@ def git(repo: Path, *args: str) -> str:
 
 def validate_registry(repo: Path) -> None:
     registry_manifest_path = repo / "workspace/shark-foundation/data/action_registry_v1_manifest.json"
-    registry_part_paths = [repo / f"workspace/shark-foundation/data/action_registry_v1_part{i:02d}.jsonl" for i in range(1, 13)]
+    registry_part_paths = [repo / f"workspace/shark-foundation/data/action_registry_v1_chunk{i:02d}.jsonl" for i in range(1, 25)]
     source_path = repo / "workspace/shark-foundation/src/action_system.rs"
     source_part_paths = [repo / f"workspace/shark-foundation/src/action_system/part{i:02d}.rs" for i in range(1, 5)]
     design_path = repo / "docs/SBC7B2_ACTION_SYSTEM_DESIGN_2026-09-15.md"
