@@ -7,7 +7,7 @@
 
 use super::*;
 
-pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 4;
+pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 5;
 pub(super) const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
 pub(super) const MAX_ACTIVITY_BATCH: usize = 10_000;
 pub(super) const MAX_ACTIVITY_PAGE: i64 = 500;
@@ -169,7 +169,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     }
 
     db.conn()
-        .execute_batch("SAVEPOINT shark_application_schema_v4")
+        .execute_batch("SAVEPOINT shark_application_schema_v5")
         .map_err(sqlite_error)?;
     let migration = db.conn().execute_batch(
         r#"
@@ -321,8 +321,19 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_shark_owner_correction_replacement
             ON shark_owner_correction(company_slug, record_kind, replacement_record_id)
             WHERE replacement_record_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS shark_contact (
+            company_slug TEXT NOT NULL,
+            contact_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('customer','supplier')),
+            display_name TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(company_slug, contact_id)
+        );
         INSERT INTO shark_application_meta(id, schema_version)
-            VALUES(1, 4)
+            VALUES(1, 5)
             ON CONFLICT(id) DO UPDATE SET schema_version = excluded.schema_version
             WHERE shark_application_meta.schema_version < excluded.schema_version;
         "#,
@@ -330,11 +341,11 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     if let Err(error) = migration {
         let _ = db
             .conn()
-            .execute_batch("ROLLBACK TO shark_application_schema_v4; RELEASE shark_application_schema_v4");
+            .execute_batch("ROLLBACK TO shark_application_schema_v5; RELEASE shark_application_schema_v5");
         return Err(sqlite_error(error));
     }
     db.conn()
-        .execute_batch("RELEASE shark_application_schema_v4")
+        .execute_batch("RELEASE shark_application_schema_v5")
         .map_err(sqlite_error)?;
 
     let observed: i64 = db

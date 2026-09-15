@@ -23,6 +23,7 @@ use super::ocr_native::{self, NativeApprovedOcrDocument, NativeOcrRegistry, Shel
 use super::{open_books_impl, OpenBooksRequest};
 
 const OWNER_DOCUMENT_BRIDGE_VERSION: u32 = 1;
+const MAX_SESSION_STORAGE_ROOTS: usize = 1024;
 const MAX_DOCUMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_DOCUMENT_READ_BYTES: u64 = MAX_DOCUMENT_BYTES + 1;
 
@@ -34,6 +35,10 @@ pub(crate) struct OwnerDocumentError {
 }
 
 impl OwnerDocumentError {
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
     fn invalid(message: impl Into<String>) -> Self {
         Self { code: "invalidInput", message: message.into() }
     }
@@ -110,6 +115,47 @@ impl NativeDocumentRootRegistry {
             .map_err(|_| OwnerDocumentError::document("document storage-root registry is unavailable"))?
             .insert(root_id, canonical);
         Ok(())
+    }
+
+    /// Native picker paths stay in memory; callers receive only a bounded opaque ID.
+    pub(crate) fn register_session_root(&self, path: PathBuf) -> OwnerDocumentResult<String> {
+        if !path.is_dir() {
+            return Err(OwnerDocumentError::document(
+                "selected storage root is not an existing directory",
+            ));
+        }
+        let canonical = fs::canonicalize(path).map_err(|_| {
+            OwnerDocumentError::document("could not resolve selected storage root")
+        })?;
+        let mut roots = self.roots.lock().map_err(|_| {
+            OwnerDocumentError::document("document storage-root registry is unavailable")
+        })?;
+        if let Some(id) = roots.iter()
+            .filter(|(id, root)| id.starts_with("storage-root-session-") && **root == canonical)
+            .map(|(id, _)| id)
+            .min()
+        {
+            return Ok(id.clone());
+        }
+        let generated_count = roots.keys()
+            .filter(|id| id.starts_with("storage-root-session-"))
+            .count();
+        if generated_count >= MAX_SESSION_STORAGE_ROOTS {
+            return Err(OwnerDocumentError::document("session storage-root capacity reached"));
+        }
+        for index in 1..=MAX_SESSION_STORAGE_ROOTS {
+            let id = format!("storage-root-session-{index}");
+            if !roots.contains_key(&id) {
+                roots.insert(id.clone(), canonical);
+                return Ok(id);
+            }
+        }
+        Err(OwnerDocumentError::document("session storage-root capacity reached"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn registered_root_count(&self) -> usize {
+        self.roots.lock().expect("storage-root registry available").len()
     }
 
     fn resolve(&self, root_id: &str) -> OwnerDocumentResult<PathBuf> {
@@ -661,6 +707,42 @@ mod tests {
             bad.as_object_mut().unwrap().insert(forbidden.to_string(), serde_json::Value::String("forbidden".into()));
             assert!(serde_json::from_value::<OwnerDocumentSelectRequest>(bad).is_err(), "forbidden field accepted: {forbidden}");
         }
+    }
+
+    #[test]
+    fn session_roots_are_canonical_collision_safe_and_bounded() {
+        let original = temp_dir("session-original");
+        let selected = temp_dir("session-selected");
+        let roots = NativeDocumentRootRegistry::default();
+        roots.register_native_root("storage-root-session-1", original.clone()).unwrap();
+        roots.register_native_root("manual-root", selected.clone()).unwrap();
+        let id = roots.register_session_root(selected.clone()).unwrap();
+        assert_eq!(id, "storage-root-session-2");
+        assert_eq!(roots.resolve("storage-root-session-1").unwrap(), fs::canonicalize(&original).unwrap());
+        assert_eq!(roots.resolve(&id).unwrap(), fs::canonicalize(&selected).unwrap());
+        assert_eq!(roots.register_session_root(selected.join(".")).unwrap(), id);
+        assert_eq!(roots.registered_root_count(), 3);
+
+        let missing = selected.join("nonexistent");
+        assert!(roots.register_session_root(missing).is_err());
+        assert_eq!(roots.registered_root_count(), 3);
+        let file = selected.join("not-a-directory");
+        fs::write(&file, b"file").unwrap();
+        assert!(roots.register_session_root(file).is_err());
+        assert_eq!(roots.registered_root_count(), 3);
+
+        // Fill native collisions without creating 1024 directories. Capacity counts IDs.
+        for index in 3..=MAX_SESSION_STORAGE_ROOTS {
+            roots.register_native_root(format!("storage-root-session-{index}"), original.clone()).unwrap();
+        }
+        let extra = temp_dir("session-overflow");
+        assert!(roots.register_session_root(extra.clone()).is_err());
+        assert_eq!(roots.registered_root_count(), MAX_SESSION_STORAGE_ROOTS + 1);
+        assert_eq!(roots.register_session_root(selected.clone()).unwrap(), id);
+        assert_eq!(roots.resolve("storage-root-session-1").unwrap(), fs::canonicalize(&original).unwrap());
+        fs::remove_dir_all(original).unwrap();
+        fs::remove_dir_all(selected).unwrap();
+        fs::remove_dir_all(extra).unwrap();
     }
 
     #[test]

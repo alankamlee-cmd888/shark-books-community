@@ -10,6 +10,7 @@ mod owner_bank_mutation;
 mod owner_bank_review;
 mod owner_documents_ocr;
 mod owner_mutation_audit;
+mod owner_supporting_data;
 
 use std::fs;
 use std::path::PathBuf;
@@ -270,7 +271,12 @@ pub fn run() {
             owner_mutation_audit::owner_receipt_reject_bank,
             owner_mutation_audit::owner_correction_preview,
             owner_mutation_audit::owner_correction_confirm,
-            owner_mutation_audit::owner_correction_history
+            owner_mutation_audit::owner_correction_history,
+            owner_supporting_data::owner_contacts_list,
+            owner_supporting_data::owner_contacts_save,
+            owner_supporting_data::owner_settings_books_info,
+            owner_supporting_data::owner_settings_storage_root_select,
+            owner_supporting_data::owner_report_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Shark Books Community bounded native shell");
@@ -354,7 +360,7 @@ mod tests {
         })
         .expect("open encrypted books command");
         assert_eq!(opened.metadata.company_name, "Shark SBC-1D Windows Proof");
-        assert_eq!(opened.metadata.application_schema_version, 4);
+        assert_eq!(opened.metadata.application_schema_version, 5);
 
         let verified = books_verify(OpenBooksRequest {
             file_name: open.file_name.clone(),
@@ -429,6 +435,11 @@ mod tests {
             "owner_correction_preview",
             "owner_correction_confirm",
             "owner_correction_history",
+            "owner_contacts_list",
+            "owner_contacts_save",
+            "owner_settings_books_info",
+            "owner_settings_storage_root_select",
+            "owner_report_summary",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -505,6 +516,11 @@ mod tests {
             "owner_correction_preview",
             "owner_correction_confirm",
             "owner_correction_history",
+            "owner_contacts_list",
+            "owner_contacts_save",
+            "owner_settings_books_info",
+            "owner_settings_storage_root_select",
+            "owner_report_summary",
         ] {
             assert!(
                 BUILD_RS.contains(command),

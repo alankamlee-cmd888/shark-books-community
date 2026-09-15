@@ -130,9 +130,9 @@ fn confirm_match_for(
 }
 
 #[test]
-fn application_schema_v4_is_separate_from_beankeeper_schema_8() {
+fn application_schema_v5_is_separate_from_beankeeper_schema_8() {
     let (books, path) = test_books("schema");
-    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 4);
+    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 5);
     assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     let observed: i64 = books
         .db
@@ -143,7 +143,60 @@ fn application_schema_v4_is_separate_from_beankeeper_schema_8() {
             |row| row.get(0),
         )
         .expect("Shark application schema row");
-    assert_eq!(observed, 4);
+    assert_eq!(observed, 5);
+    drop(books);
+    remove_sqlite_artifacts(&path);
+}
+
+#[test]
+fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
+    let (books, path) = test_books("v4-v5-preservation");
+    books.db.conn().execute_batch(
+        "INSERT INTO shark_document(
+            company_slug, document_id, storage_root_id, relative_path,
+            original_filename, media_type, sha256, byte_len, registered_by
+        ) VALUES(
+            'bank-test', 'migration-doc', 'root-1', 'receipt.pdf',
+            'receipt.pdf', 'application/pdf',
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            1, 'local-owner'
+        );
+        INSERT INTO shark_receipt_bank_decision(
+            company_slug, suggestion_id, document_id, decision_kind, decided_by
+        ) VALUES(
+            'bank-test', 'migration-suggestion', 'migration-doc', 'rejected', 'local-owner'
+        );"
+    ).expect("seed real Batch A document and rejected receipt decision");
+    let decision_snapshot = || {
+        books.db.conn().query_row(
+            "SELECT * FROM shark_receipt_bank_decision
+             WHERE company_slug = 'bank-test' AND suggestion_id = 'migration-suggestion'",
+            [],
+            |row| (0..row.as_ref().column_count())
+                .map(|index| row.get_ref(index).map(|value| format!("{value:?}")))
+                .collect::<Result<Vec<_>, _>>(),
+        ).expect("complete Batch A decision row")
+    };
+    let before = decision_snapshot();
+    books.db.conn().execute_batch(
+        "DROP TABLE shark_contact;
+         UPDATE shark_application_meta SET schema_version = 4 WHERE id = 1;"
+    ).expect("reconstruct v4 application schema");
+    ensure_application_schema(&books.db).expect("migrate v4 to v5");
+    let version: i64 = books.db.conn().query_row(
+        "SELECT schema_version FROM shark_application_meta WHERE id = 1", [], |row| row.get(0)
+    ).expect("application schema version");
+    assert_eq!(version, 5);
+    for table in ["shark_contact", "shark_owner_correction"] {
+        let count: i64 = books.db.conn().query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table], |row| row.get(0)
+        ).expect("application table");
+        assert_eq!(count, 1, "missing {table}");
+    }
+    assert_eq!(decision_snapshot(), before, "all Batch A decision fields survive unchanged");
+    assert!(books.document("migration-doc").is_ok(), "referenced document survives");
+    assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     drop(books);
     remove_sqlite_artifacts(&path);
 }
