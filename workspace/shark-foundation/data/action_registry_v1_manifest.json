@@ -23,31 +23,41 @@
     {
       "alias_action_id": "MONEY_IN.DAILY_TAKINGS",
       "target_action_id": "MONEY_IN.SAVE",
-      "preset": { "category": "Sales/Trading" },
+      "preset": {
+        "category": "Sales/Trading"
+      },
       "label": "Record today's takings"
     },
     {
       "alias_action_id": "MONEY_OUT.MIXED_USE",
       "target_action_id": "MONEY_OUT.SAVE",
-      "preset": { "business_use": "mixed" },
+      "preset": {
+        "business_use": "mixed"
+      },
       "label": "Record mixed business/private spending"
     },
     {
       "alias_action_id": "MONEY_OUT.PRIVATE_FROM_BUSINESS_FUNDS",
       "target_action_id": "MONEY_OUT.SAVE",
-      "preset": { "business_use": "private" },
+      "preset": {
+        "business_use": "private"
+      },
       "label": "Record a private purchase paid by the business"
     },
     {
       "alias_action_id": "CONTACT.CREATE_CUSTOMER",
       "target_action_id": "CONTACTS.SAVE",
-      "preset": { "kind": "customer" },
+      "preset": {
+        "kind": "customer"
+      },
       "label": "Add customer"
     },
     {
       "alias_action_id": "CONTACT.CREATE_SUPPLIER",
       "target_action_id": "CONTACTS.SAVE",
-      "preset": { "kind": "supplier" },
+      "preset": {
+        "kind": "supplier"
+      },
       "label": "Add supplier"
     }
   ]
