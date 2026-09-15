@@ -113,6 +113,17 @@ The final admission remains pending until:
 5. the generated files and lock are independently inspected;
 6. the integrated static gate passes at the eventual candidate SHA.
 
+## Phase-C scaffold status
+
+Candidate-integration proof scaffolding is now committed on the same branch:
+
+- integrated static checker;
+- Windows FT1/FT2 Super-Gate runner;
+- Mac/Apple FT1/FT2 Super-Gate runner;
+- manual Codemagic Apple workflow registration.
+
+No Codemagic build has been run. The Super-Gate cannot become authoritative until generated outputs, exact lock bytes and the Foundation public export are committed on one frozen SHA.
+
 ## Boundary
 
 No runtime Action System call path enables `action-contract-gen`. No Tauri command, persistence surface, accounting mutation, SBC8 production activation, model call or speech runtime is added here.
@@ -124,5 +135,6 @@ Formal interim state:
 `TS_RS_12_0_1_FALLBACK_LOCK_RESOLUTION_PASS`  
 `TS_RS_12_API_MISMATCH_REPAIRED`  
 `GENERATED_OUTPUT_PROOF_PENDING`  
+`SUPERGATE_SCAFFOLD_COMPLETE`  
 `SWIFT_GENERATION_DEFERRED_TO_APPINTENT_STAGE`  
 `CANDIDATE_NOT_FROZEN`
