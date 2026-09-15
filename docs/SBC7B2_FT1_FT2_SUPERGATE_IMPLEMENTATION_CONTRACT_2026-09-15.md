@@ -257,3 +257,23 @@ Before candidate freeze, all of the following must be true on one repository SHA
 5. both Super-Gate runners and the manual Codemagic workflow are committed;
 6. repository is clean;
 7. only then may the SHA be called the immutable FT1/FT2 Super-Gate candidate.
+
+## 18. Current pre-candidate integration checkpoint
+
+Phase-C proof scaffolding is now committed on PR #28, including:
+
+- integrated FT1/FT2 static checker;
+- Windows SG0–SG8 runner;
+- Mac/Apple SG0–SG8 runner;
+- manual Codemagic workflow registration.
+
+No Codemagic build has been run.
+
+The only remaining candidate-integration material is:
+
+- exact machine-generated `workspace/Cargo.lock` bytes;
+- generated JSON Schema and TypeScript bytes plus successful reproduction check;
+- final one-line Foundation public Action System export;
+- final integrated static PASS on one clean SHA.
+
+The current branch must remain **pre-candidate** until those exact materials are committed and proved.
