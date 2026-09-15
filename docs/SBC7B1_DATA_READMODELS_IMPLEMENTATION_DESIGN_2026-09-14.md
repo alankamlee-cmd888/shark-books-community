@@ -3,7 +3,8 @@
 **Date:** 14 September 2026  
 **Entry protected main:** `6f85734d0e9e11089a1a47b7850a306a4ed7ba87`  
 **Stage:** SBC-7B1 remaining typed owner bridge — Batch B  
-**Authority:** `docs/SBC7B1_DATA_READMODELS_BATCH_CONTRACT_2026-09-14.md`
+**Authority:** `docs/SBC7B1_DATA_READMODELS_BATCH_CONTRACT_2026-09-14.md`  
+**Repair amendment:** DR-BB-10, 15 September 2026 — mobile folder selection must fail closed because the admitted Tauri dialog plugin does not implement folder picking on iOS/Android.
 
 ## 1. Objective
 
@@ -55,18 +56,23 @@ Successful open is represented factually as an encrypted-native books session; n
 Reuse the already admitted `tauri-plugin-dialog = 2.7.3` and the existing Rust-only `NativeDocumentRootRegistry`.
 
 The registry gains a native-only session registration helper that:
-- accepts a native `PathBuf` supplied by the native folder picker;
+- accepts a native `PathBuf` supplied by a supported native folder picker;
 - requires an existing directory;
 - canonicalises the directory before storage;
 - assigns/reuses an opaque `storage-root-session-N` identifier in memory;
 - never serializes the canonical path.
 
 `owner_settings_storage_root_select`:
-1. validates/opens the owner books reference;
-2. invokes the native folder picker with `blocking_pick_folder()`;
-3. cancellation returns a typed `cancelled` outcome without registry mutation;
-4. selected native path is registered in the Rust registry;
-5. response contains only bridge version, opaque root ID, generic safe label and explicit `deviceSession` scope.
+1. validates/opens the owner books reference on every platform;
+2. on supported desktop targets (Windows/macOS and other non-mobile targets), invokes the admitted native folder picker with `blocking_pick_folder()`;
+3. desktop cancellation returns a typed `cancelled` outcome without registry mutation;
+4. a selected desktop native path is registered in the Rust registry;
+5. the desktop response contains only bridge version, opaque root ID, generic safe label and explicit `deviceSession` scope;
+6. on iOS/Android, where `tauri-plugin-dialog` does not implement folder picking, the command compiles but fails closed with the owner-safe error code `unsupportedPlatform`;
+7. the mobile unsupported path performs no registry mutation and returns no native path, URL, provider token or filesystem authority;
+8. file picking must not be substituted for folder picking merely to make the mobile build pass.
+
+A real iPhone/iPad storage-root adapter is deferred to SBC-7B2/native mobile work and must preserve the same opaque-root/no-raw-path boundary.
 
 No root path is persisted in the encrypted books and no cloud credentials/provider mapping is introduced.
 
@@ -97,7 +103,9 @@ The module may use:
 - `shark_foundation` typed facade/read DTOs;
 - `NativeDocumentRootRegistry` for opaque session-root registration;
 - existing `open_books_impl`/`OpenBooksRequest` for bounded encrypted books access;
-- `tauri_plugin_dialog::DialogExt` for the native folder picker.
+- `tauri_plugin_dialog::DialogExt` only behind a non-mobile target guard for the supported native desktop folder picker.
+
+The mobile iOS/Android build must not reference the unsupported folder-picker method. It must retain the command identity and fail closed through the typed owner-safe error surface instead.
 
 It must not use raw SQLite, Beankeeper DB objects, arbitrary path input, generic shell/network APIs or frontend-supplied filesystem paths.
 
@@ -132,7 +140,9 @@ Static/runtime proof must demonstrate:
 - v4 books migrate to v5 while preserving existing Batch A tables/data;
 - contact create/update/list/idempotency/kind-conflict/domain-validation/non-posting;
 - books-info has no raw path/key/database authority;
-- native storage root returns only opaque ID/safe status, is session-scoped, canonicalized and cancellation-safe;
+- supported desktop storage-root selection returns only opaque ID/safe status, is session-scoped, canonicalized and cancellation-safe;
+- iOS/Android storage-root selection compiles and fails closed with `unsupportedPlatform`, with no raw path/URL/provider authority and no registry mutation;
+- `blocking_pick_folder()` remains confined to the non-mobile target branch;
 - factual report sign/account handling and overflow fail-closed;
 - inherited product/foundation/owner/Bank/Documents/OCR/Mutation+Audit tests remain PASS;
 - frontend remains intentionally unwired from all five new commands;
