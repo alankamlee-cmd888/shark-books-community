@@ -1,0 +1,220 @@
+//! Bounded SBC-7B2 Action System schema/TypeScript generator.
+//! This is tooling only: the `action-contract-gen` feature is disabled by default.
+
+use std::collections::BTreeMap;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use schemars::{schema_for, JsonSchema};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
+use ts_rs::{Config, TS};
+
+pub use shark_foundation::{FoundationError, FoundationErrorCode, FoundationResult};
+
+#[path = "../../workspace/shark-foundation/src/action_system.rs"]
+mod action_system;
+
+use action_system::{
+    ActionAlias, ActionRegistryCounts, ActionRegistryDocument, ActionRegistryPolicy, ActionSpec,
+    ConfirmationClass, SlotSource, SlotSpec,
+};
+
+// Exact ten-type generator-admission corpus. These types are tooling-only and exercise the
+// representational features used by the real Action Registry contract.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeScalar {
+    value: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeOptional {
+    value: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeVector {
+    values: Vec<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeMap {
+    values: BTreeMap<String, String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeNested {
+    scalar: SmokeScalar,
+    optional: SmokeOptional,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SmokeRenamedEnum {
+    FirstValue,
+    SecondValue,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeEnumHolder {
+    state: SmokeRenamedEnum,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeBoolAndInteger {
+    enabled: bool,
+    version: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeVecNested {
+    items: Vec<SmokeNested>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+struct SmokeComplete {
+    id: String,
+    state: SmokeRenamedEnum,
+    payload: Option<SmokeVecNested>,
+}
+
+const SCHEMARS_VERSION: &str = "1.2.2";
+const TS_RS_VERSION: &str = "12.0.1";
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repository root must resolve")
+}
+
+fn ts_config() -> Config {
+    // Deliberately use fixed library defaults rather than Config::from_env().
+    // This prevents TS_RS_* environment variables from changing generated contract bytes.
+    Config::default()
+}
+
+fn smoke_generator_fidelity() -> Result<(), String> {
+    let cfg = ts_config();
+    macro_rules! smoke {
+        ($ty:ty) => {{
+            let ts = <$ty as TS>::decl(&cfg);
+            if ts.trim().is_empty() {
+                return Err(format!("empty ts-rs declaration for {}", stringify!($ty)));
+            }
+            let schema = serde_json::to_value(schema_for!($ty))
+                .map_err(|e| format!("schema serialization failed for {}: {e}", stringify!($ty)))?;
+            if !schema.is_object() {
+                return Err(format!("non-object schema for {}", stringify!($ty)));
+            }
+        }};
+    }
+    smoke!(SmokeScalar);
+    smoke!(SmokeOptional);
+    smoke!(SmokeVector);
+    smoke!(SmokeMap);
+    smoke!(SmokeNested);
+    smoke!(SmokeRenamedEnum);
+    smoke!(SmokeEnumHolder);
+    smoke!(SmokeBoolAndInteger);
+    smoke!(SmokeVecNested);
+    smoke!(SmokeComplete);
+    Ok(())
+}
+
+fn contract_schema() -> Result<String, String> {
+    let mut defs = Map::new();
+    macro_rules! schema {
+        ($ty:ty) => {{
+            let value = serde_json::to_value(schema_for!($ty))
+                .map_err(|e| format!("schema serialization failed for {}: {e}", stringify!($ty)))?;
+            defs.insert(stringify!($ty).to_string(), value);
+        }};
+    }
+
+    schema!(ActionRegistryCounts);
+    schema!(ActionRegistryPolicy);
+    schema!(ActionAlias);
+    schema!(ConfirmationClass);
+    schema!(SlotSource);
+    schema!(SlotSpec);
+    schema!(ActionSpec);
+    schema!(ActionRegistryDocument);
+
+    let document = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:sharkbooks:action-system:v1",
+        "title": "SharkBooks Action Registry Contract v1",
+        "x-shark-generators": {
+            "json_schema": format!("schemars {SCHEMARS_VERSION}"),
+            "typescript": format!("ts-rs {TS_RS_VERSION}")
+        },
+        "$defs": Value::Object(defs),
+    });
+    serde_json::to_string_pretty(&document)
+        .map(|mut s| { s.push('\n'); s })
+        .map_err(|e| format!("schema formatting failed: {e}"))
+}
+
+fn contract_typescript() -> String {
+    let cfg = ts_config();
+    let declarations = [
+        <ActionRegistryCounts as TS>::decl(&cfg),
+        <ActionRegistryPolicy as TS>::decl(&cfg),
+        <ActionAlias as TS>::decl(&cfg),
+        <ConfirmationClass as TS>::decl(&cfg),
+        <SlotSource as TS>::decl(&cfg),
+        <SlotSpec as TS>::decl(&cfg),
+        <ActionSpec as TS>::decl(&cfg),
+        <ActionRegistryDocument as TS>::decl(&cfg),
+    ];
+    format!(
+        "// Generated by SharkBooks bounded Action System tooling.\n// JSON-schema generator: schemars {SCHEMARS_VERSION}\n// TypeScript generator: ts-rs {TS_RS_VERSION}\n// Do not edit manually.\n\n{}\n",
+        declarations.join("\n\n")
+    )
+}
+
+fn write_exact(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+    fs::write(path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
+}
+
+fn check_exact(path: &Path, expected: &str) -> Result<(), String> {
+    let actual = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    if actual != expected {
+        return Err(format!("generated contract drift: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn main() {
+    if let Err(message) = run() {
+        eprintln!("[FAIL] {message}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
+    smoke_generator_fidelity()?;
+
+    let root = repo_root();
+    let schema_path = root.join("contracts/action-system/v1/action_contract.schema.json");
+    let ts_path = root.join("contracts/action-system/v1/action_contract.ts");
+    let schema = contract_schema()?;
+    let typescript = contract_typescript();
+
+    let mode = env::args().nth(1).unwrap_or_default();
+    match mode.as_str() {
+        "--write" => {
+            write_exact(&schema_path, &schema)?;
+            write_exact(&ts_path, &typescript)?;
+            println!("[PASS] 10-type Schemars/ts-rs admission smoke");
+            println!("[PASS] wrote {}", schema_path.display());
+            println!("[PASS] wrote {}", ts_path.display());
+        }
+        "--check" => {
+            check_exact(&schema_path, &schema)?;
+            check_exact(&ts_path, &typescript)?;
+            println!("[PASS] 10-type Schemars/ts-rs admission smoke");
+            println!("[PASS] generated schema/TypeScript match checked-in artifacts");
+        }
+        _ => return Err("usage: action-contract --write | --check".to_string()),
+    }
+    Ok(())
+}
