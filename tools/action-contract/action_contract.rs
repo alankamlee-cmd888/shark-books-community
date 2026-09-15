@@ -81,7 +81,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn ts_config() -> Config {
-    // Deliberately use fixed library defaults rather than Config::from_env().
+    // Deliberately use fixed library defaults rather than environment-derived configuration.
     // This prevents TS_RS_* environment variables from changing generated contract bytes.
     Config::default()
 }
