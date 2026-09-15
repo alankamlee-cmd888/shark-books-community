@@ -1,0 +1,54 @@
+{
+  "schema": "sharkbooks-action-registry-v1",
+  "date": "2026-09-15",
+  "source_authorities": [
+    "168_MASTER_SHARKBOOKS_CAPABILITY_ACTION_REGISTRY_2026-09-15.md",
+    "171A_SHARKBOOKS_VOICE_ELIGIBLE_ACTION_MANIFEST_2026-09-15.json",
+    "179_SBC7B1_FULL_TYPED_BRIDGE_FINAL_CLOSURE_2026-09-15.md",
+    "180_SBC7B2_SUPERGATE_FASTTRACK_ACTIVATION_2026-09-15.md"
+  ],
+  "counts": {
+    "canonical_actions": 206,
+    "voice_eligible_canonical_actions": 175,
+    "aliases": 5,
+    "utterance_fixtures": 700
+  },
+  "policy": {
+    "voice_adds_no_new_authority": true,
+    "locked_actions_fail_closed": true,
+    "confirmation_cannot_be_lowered_by_invocation_surface": true,
+    "manual_text_voice_platform_intent_share_one_action_identity": true
+  },
+  "aliases": [
+    {
+      "alias_action_id": "MONEY_IN.DAILY_TAKINGS",
+      "target_action_id": "MONEY_IN.SAVE",
+      "preset": { "category": "Sales/Trading" },
+      "label": "Record today's takings"
+    },
+    {
+      "alias_action_id": "MONEY_OUT.MIXED_USE",
+      "target_action_id": "MONEY_OUT.SAVE",
+      "preset": { "business_use": "mixed" },
+      "label": "Record mixed business/private spending"
+    },
+    {
+      "alias_action_id": "MONEY_OUT.PRIVATE_FROM_BUSINESS_FUNDS",
+      "target_action_id": "MONEY_OUT.SAVE",
+      "preset": { "business_use": "private" },
+      "label": "Record a private purchase paid by the business"
+    },
+    {
+      "alias_action_id": "CONTACT.CREATE_CUSTOMER",
+      "target_action_id": "CONTACTS.SAVE",
+      "preset": { "kind": "customer" },
+      "label": "Add customer"
+    },
+    {
+      "alias_action_id": "CONTACT.CREATE_SUPPLIER",
+      "target_action_id": "CONTACTS.SAVE",
+      "preset": { "kind": "supplier" },
+      "label": "Add supplier"
+    }
+  ]
+}
