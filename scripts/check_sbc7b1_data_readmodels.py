@@ -140,6 +140,14 @@ def static_gate(repo: Path) -> dict[str, object]:
         require(command in contract, f"frozen Batch B contract contains command: {command}")
         require(command in design, f"implementation design contains command: {command}")
     require("no new dependency is authorised" in contract.lower(), "frozen contract authorises no new dependency")
+    require(
+        "unsupportedPlatform" in design and "iOS/Android" in design,
+        "DR-BB-10 design records fail-closed mobile folder-selection boundary",
+    )
+    require(
+        "file picking must not be substituted for folder picking" in design,
+        "DR-BB-10 design forbids file-picker substitution on mobile",
+    )
 
     foundation = text(repo, "workspace/shark-foundation/src/lib.rs")
     require(
@@ -224,15 +232,34 @@ def static_gate(repo: Path) -> dict[str, object]:
         "owner_settings_storage_root_select",
         "owner_report_summary",
         "blocking_pick_folder",
+        "unsupportedPlatform",
+        "storage_root_mobile_unsupported_error",
         "DeviceSession",
         "report_from_trial_balance",
         "contact_request_rejects_raw_authority_and_uses_core_validation",
         "books_info_serialization_contains_no_path_key_or_database_authority",
         "storage_root_registration_is_opaque_session_scoped_and_cancellation_safe",
+        "mobile_storage_root_selection_fails_closed_without_raw_authority",
         "report_summary_uses_factual_account_signs_and_optional_cash_balances",
         "report_summary_fails_closed_on_i64_result_overflow_and_ambiguous_bank",
     ]:
         require(anchor in owner, f"owner supporting-data bridge anchor present: {anchor}")
+    desktop_guard = '#[cfg(not(any(target_os = "ios", target_os = "android")))]\nfn select_storage_root('
+    mobile_guard = '#[cfg(any(target_os = "ios", target_os = "android"))]\nfn select_storage_root('
+    require(desktop_guard in owner, "storage-root picker implementation is explicitly non-mobile")
+    require(mobile_guard in owner, "mobile storage-root command has an explicit fail-closed implementation")
+    desktop_pos = owner.index(desktop_guard)
+    picker_pos = owner.index("blocking_pick_folder")
+    mobile_pos = owner.index(mobile_guard)
+    require(
+        desktop_pos < picker_pos < mobile_pos and owner.count("blocking_pick_folder") == 1,
+        "blocking folder picker is confined to the non-mobile target branch",
+    )
+    require(
+        'code: "unsupportedPlatform"' in owner
+        and '"folder selection is not supported on this mobile platform"' in owner,
+        "mobile storage-root selection fails closed with an owner-safe unsupportedPlatform error",
+    )
     runtime_owner = owner.split("#[cfg(test)]", 1)[0].lower()
     for marker in [
         "use beankeeper", "use rusqlite", "tauri_plugin_shell", "reqwest::", "ureq::",
