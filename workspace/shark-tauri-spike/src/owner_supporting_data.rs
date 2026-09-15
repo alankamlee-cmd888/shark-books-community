@@ -11,6 +11,7 @@ use shark_foundation::{
     Books, ContactPersistOutcome, ContactView, ContactWrite, FoundationError,
     FoundationErrorCode, TrialBalance,
 };
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use tauri_plugin_dialog::DialogExt;
 
 use super::owner_documents_ocr::NativeDocumentRootRegistry;
@@ -49,6 +50,13 @@ impl OwnerSupportingDataError {
     fn storage(message: impl Into<String>) -> Self {
         Self {
             code: "storageRootFailed",
+            message: message.into(),
+        }
+    }
+
+    fn unsupported_platform(message: impl Into<String>) -> Self {
+        Self {
+            code: "unsupportedPlatform",
             message: message.into(),
         }
     }
@@ -366,6 +374,38 @@ fn register_storage_root_selection(
     })
 }
 
+fn storage_root_mobile_unsupported_error() -> OwnerSupportingDataError {
+    OwnerSupportingDataError::unsupported_platform(
+        "folder selection is not supported on this mobile platform",
+    )
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn select_storage_root(
+    app: &tauri::AppHandle,
+    roots: &NativeDocumentRootRegistry,
+) -> OwnerSupportingDataResult<OwnerStorageRootSelectOutcome> {
+    let selected = app.dialog().file().blocking_pick_folder();
+    let selected = selected
+        .map(|value| {
+            value.into_path().map_err(|_| {
+                OwnerSupportingDataError::storage(
+                    "selected folder could not be resolved to a native directory",
+                )
+            })
+        })
+        .transpose()?;
+    register_storage_root_selection(roots, selected)
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn select_storage_root(
+    _app: &tauri::AppHandle,
+    _roots: &NativeDocumentRootRegistry,
+) -> OwnerSupportingDataResult<OwnerStorageRootSelectOutcome> {
+    Err(storage_root_mobile_unsupported_error())
+}
+
 #[tauri::command]
 pub(crate) fn owner_contacts_save(
     request: OwnerContactsSaveRequest,
@@ -448,17 +488,7 @@ pub(crate) async fn owner_settings_storage_root_select(
     request: OwnerSettingsStorageRootSelectRequest,
 ) -> OwnerSupportingDataResult<OwnerStorageRootSelectOutcome> {
     let _books = request.books.open()?;
-    let selected = app.dialog().file().blocking_pick_folder();
-    let selected = selected
-        .map(|value| {
-            value.into_path().map_err(|_| {
-                OwnerSupportingDataError::storage(
-                    "selected folder could not be resolved to a native directory",
-                )
-            })
-        })
-        .transpose()?;
-    register_storage_root_selection(&roots, selected)
+    select_storage_root(&app, &roots)
 }
 
 #[tauri::command]
@@ -587,6 +617,20 @@ mod tests {
         assert_eq!(roots.registered_root_count(), 1);
 
         let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn mobile_storage_root_selection_fails_closed_without_raw_authority() {
+        let error = storage_root_mobile_unsupported_error();
+        assert_eq!(error.code, "unsupportedPlatform");
+        assert_eq!(
+            error.message,
+            "folder selection is not supported on this mobile platform"
+        );
+        let json = serde_json::to_string(&error).expect("serialize unsupported-platform error");
+        for forbidden in ["fileName", "databasePath", "dbPath", "passphrase", "file://", "content://"] {
+            assert!(!json.contains(forbidden), "mobile unsupported result leaked {forbidden}");
+        }
     }
 
     #[test]
