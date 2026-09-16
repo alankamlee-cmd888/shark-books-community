@@ -13,8 +13,13 @@ $ResultDir = Join-Path $env:TEMP "SBC7B2_SUPERGATE_WINDOWS_$Timestamp"
 $GateDir = Join-Path $ResultDir 'gates'
 $LogDir = Join-Path $ResultDir 'logs'
 $CargoTarget = Join-Path $env:USERPROFILE 'sbc7b2-supergate-cargo-target'
+$ProofBooks = Join-Path $env:TEMP 'sharkbooks-sbc7b2-ft1ft2-proof-books'
 $Downloads = Join-Path $env:USERPROFILE 'Downloads'
 $ZipPath = Join-Path $Downloads "SBC7B2_FT1_FT2_SUPERGATE_WINDOWS_$Timestamp.zip"
+$HadProofKey = Test-Path Env:SHARK_SBC1D_PROOF_KEY
+$PreviousProofKey = $env:SHARK_SBC1D_PROOF_KEY
+$HadProofBooks = Test-Path Env:SHARK_SBC1D_BOOKS_DIR
+$PreviousProofBooks = $env:SHARK_SBC1D_BOOKS_DIR
 
 function Write-GateResult {
     param([string]$Gate, [string]$Status, [string]$Summary, [bool]$Mandatory = $true)
@@ -51,8 +56,11 @@ function Run-Logged {
 if ($env:OS -ne 'Windows_NT') { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
 New-Item -ItemType Directory -Force -Path $ResultDir, $GateDir, $LogDir, $Downloads | Out-Null
 if (Test-Path $CargoTarget) { Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue }
-New-Item -ItemType Directory -Force -Path $CargoTarget | Out-Null
+if (Test-Path $ProofBooks) { Remove-Item $ProofBooks -Recurse -Force -ErrorAction SilentlyContinue }
+New-Item -ItemType Directory -Force -Path $CargoTarget, $ProofBooks | Out-Null
 $env:CARGO_TARGET_DIR = $CargoTarget
+$env:SHARK_SBC1D_PROOF_KEY = 'SBC7B2-FT1FT2-Proof-Key-Only-Do-Not-Ship'
+$env:SHARK_SBC1D_BOOKS_DIR = $ProofBooks
 $script:Head = (& git -C $Repo rev-parse HEAD).Trim()
 
 try {
@@ -112,10 +120,38 @@ try {
     Run-Logged 'sg6_foundation' {
         rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-foundation --locked --jobs 1 -- --test-threads=1
     }
-    Run-Logged 'sg6_tauri' {
-        rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked --jobs 1 -- --test-threads=1
+
+    # The eight Windows B3C packaged-runtime tests require the standalone B3C harness
+    # to rebuild real/fake OCR sidecars and receipt fixtures. FT1/FT2 does not change
+    # those runtime paths, so prove that boundary is unchanged before excluding only
+    # those eight already-proven packaged-runtime cases from this inherited SG6 sweep.
+    $B3cInvariantPaths = @(
+        'workspace/shark-tauri-spike/Cargo.toml',
+        'workspace/shark-tauri-spike/build.rs',
+        'workspace/shark-tauri-spike/src/ocr_native.rs',
+        'workspace/shark-tauri-spike/permissions/shark-shell.toml',
+        'product/ocr-runtime/windows/shark_ocr_single.py',
+        'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
+        'scripts/check_sbc6b_b3c_native_gate.py'
+    )
+    $B3cChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $B3cInvariantPaths)
+    if ($B3cChanged.Count -ne 0) {
+        throw "B3C packaged-runtime exclusion is invalid because inherited OCR paths changed: $($B3cChanged -join ', ')"
     }
-    Write-GateResult 'SG6_REGRESSIONS' 'PASS' 'Product core, Foundation and inherited Tauri owner-bridge regressions pass.'
+
+    Run-Logged 'sg6_tauri' {
+        rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked --jobs 1 -- `
+            --test-threads=1 `
+            --skip ocr_native::tests::windows_malformed_and_wrong_schema_fail_closed `
+            --skip ocr_native::tests::windows_missing_sidecar_is_unavailable `
+            --skip ocr_native::tests::windows_nonzero_sidecar_maps_to_typed_engine_failure `
+            --skip ocr_native::tests::windows_real_packaged_sidecar_returns_b2_compatible_facts `
+            --skip ocr_native::tests::windows_stdout_and_stderr_limits_fail_closed `
+            --skip ocr_native::tests::windows_timeout_is_owned_by_rust_and_child_is_terminated `
+            --skip ocr_native::tests::windows_wrong_hash_is_rejected_by_verified_sidecar_before_ocr `
+            --skip ocr_native::tests::windows_wrong_length_fails_before_sidecar_execution
+    }
+    Write-GateResult 'SG6_REGRESSIONS' 'PASS' 'Product core, Foundation and inherited Tauri owner-bridge regressions pass; eight unchanged B3C packaged-runtime-only Windows tests remain covered by their dedicated prior harness.'
 
     # SG7 — Windows platform compile/check
     Run-Logged 'sg7_workspace_check' {
@@ -168,4 +204,15 @@ try {
 }
 finally {
     Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $ProofBooks -Recurse -Force -ErrorAction SilentlyContinue
+    if ($HadProofKey) {
+        $env:SHARK_SBC1D_PROOF_KEY = $PreviousProofKey
+    } else {
+        Remove-Item Env:SHARK_SBC1D_PROOF_KEY -ErrorAction SilentlyContinue
+    }
+    if ($HadProofBooks) {
+        $env:SHARK_SBC1D_BOOKS_DIR = $PreviousProofBooks
+    } else {
+        Remove-Item Env:SHARK_SBC1D_BOOKS_DIR -ErrorAction SilentlyContinue
+    }
 }

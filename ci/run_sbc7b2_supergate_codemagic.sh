@@ -15,7 +15,10 @@ RESULT_ZIP="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_CODEMAGIC_RESULT_$TS.zip"
 SUMMARY_TXT="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_SUMMARY.txt"
 SUMMARY_JSON="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_SUMMARY.json"
 CARGO_TARGET_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT1FT2-CargoTarget"
+PROOF_BOOKS_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT1FT2-ProofBooks"
 export CARGO_TARGET_DIR
+export SHARK_SBC1D_PROOF_KEY="SBC7B2-FT1FT2-Proof-Key-Only-Do-Not-Ship"
+export SHARK_SBC1D_BOOKS_DIR="$PROOF_BOOKS_DIR"
 
 OVERALL="FAIL"
 CLASSIFICATION="UNRESOLVED"
@@ -25,8 +28,8 @@ LOCK_SHA_START=""
 LOCK_BLOB_EXPECTED=""
 ICON_BACKUP=""
 mkdir -p "$GATE_DIR" "$LOG_DIR" "$ARTIFACTS"
-rm -rf "$CARGO_TARGET_DIR"
-mkdir -p "$CARGO_TARGET_DIR"
+rm -rf "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR"
+mkdir -p "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR"
 
 json_escape() {
   python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])'
@@ -93,7 +96,7 @@ EOF
   if [ ! -f "$RESULT_ZIP" ]; then
     (cd "$ARTIFACTS" && zip -qry "$RESULT_ZIP" "$(basename "$RESULT_DIR")") || true
   fi
-  rm -rf "$CARGO_TARGET_DIR"
+  rm -rf "$CARGO_TARGET_DIR" "$PROOF_BOOKS_DIR"
   exit "$rc"
 }
 trap finish EXIT
@@ -152,7 +155,7 @@ ICON_BACKUP="$RESULT_DIR/icon.original.png"
 cp "$ICON" "$ICON_BACKUP" || stop "SG6_REGRESSIONS" "ICON_BACKUP_FAIL" "Could not back up source icon" 72
 run_log sg6_rgba_icon python3 "$REPO_ROOT/ci/prepare_rgba_png.py" "$ICON" || stop "SG6_REGRESSIONS" "ICON_RGBA_FAIL" "Temporary Apple RGBA conversion failed" 73
 run_log sg6_tauri cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --locked --jobs 1 -- --test-threads=1 || stop "SG6_REGRESSIONS" "TAURI_REGRESSION_FAIL" "Inherited Tauri owner-bridge regressions failed" 74
-write_gate "SG6_REGRESSIONS" "PASS" true "Product core, Foundation and inherited Tauri regressions pass."
+write_gate "SG6_REGRESSIONS" "PASS" true "Product core, Foundation and inherited Tauri regressions pass under the established proof key/books environment."
 
 # SG7 — Apple physical + Simulator compile
 PHASE="SG7_PLATFORM_COMPILE"
