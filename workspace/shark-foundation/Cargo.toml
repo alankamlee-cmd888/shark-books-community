@@ -6,6 +6,10 @@ rust-version = "1.85"
 license = "Apache-2.0"
 publish = false
 
+[features]
+default = []
+action-contract-gen = ["dep:schemars", "dep:ts-rs"]
+
 [dependencies]
 beankeeper = { path = "../../upstream/beankeeper/beankeeper" }
 beankeeper-cli = { path = "../../upstream/beankeeper/beankeeper-cli" }
@@ -14,3 +18,10 @@ secrecy = "=0.10.3"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 sha2 = "=0.10.9"
+schemars = { version = "=1.2.2", optional = true, default-features = false, features = ["derive", "std"] }
+ts-rs = { version = "=12.0.1", optional = true, default-features = false, features = ["serde-compat"] }
+
+[[example]]
+name = "action-contract"
+path = "../../tools/action-contract/action_contract.rs"
+required-features = ["action-contract-gen"]

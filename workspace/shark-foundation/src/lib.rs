@@ -26,6 +26,7 @@ mod bank_application;
 mod contact_application;
 mod document_application;
 mod mutation_audit_application;
+pub mod action_system;
 pub use bank_application::{
     BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
     BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
