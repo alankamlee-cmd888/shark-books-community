@@ -31,9 +31,20 @@ function Write-GateResult {
 function Run-Logged {
     param([string]$Label, [scriptblock]$Command)
     $log = Join-Path $LogDir "$Label.log"
-    & $Command 2>&1 | Tee-Object -FilePath $log
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE"
+    # Windows PowerShell surfaces native stderr as non-terminating ErrorRecords when
+    # redirected. Cargo writes ordinary compile progress to stderr, so judge native
+    # command success by its exit code while still capturing both streams.
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $Command 2>&1 | Tee-Object -FilePath $log
+        $ExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($ExitCode -ne 0) {
+        throw "$Label failed with exit code $ExitCode"
     }
 }
 
