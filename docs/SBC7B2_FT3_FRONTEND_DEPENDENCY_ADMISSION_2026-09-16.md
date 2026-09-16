@@ -14,10 +14,22 @@ Runtime/source:
 Build/development:
 - `vite` `8.3.0` — MIT
 - `@vitejs/plugin-vue` `6.0.9` — MIT
-- `typescript` `7.0.2` — Apache-2.0
+- `typescript` `6.0.3` — Apache-2.0
 - `vue-tsc` `3.3.11` — MIT
 
 Vite 8 requires Node 20.19+ or 22.12+. SharkBooks sets the FT3 source engine floor to Node `>=22.12.0`.
+
+## TypeScript compatibility repair — 2026-09-16
+
+The initial development pin `typescript 7.0.2` was rejected by the first isolated frontend proof. `vue-tsc 3.3.11` failed before project type-checking with Node `ERR_PACKAGE_PATH_NOT_EXPORTED` while resolving the private `typescript/lib/tsc` subpath. This is a tooling-compatibility defect in the admitted dependency combination, not a SharkBooks source/type error.
+
+Authoritative reconciliation found:
+- Vue Language Tools issue #6124 records the same TypeScript 7.0.2 / `./lib/tsc` failure and reports that TypeScript 6 resolves it;
+- the Vue Language Tools workspace moved its TypeScript development line to 6.0.3;
+- contemporary Vue ecosystem lockfiles show `vue-tsc 3.3.x` paired with `typescript 6.0.3`;
+- TypeScript 7 support remains a separate Vue Language Tools roadmap concern and is not treated as a drop-in replacement for the classic TypeScript API used by `vue-tsc`.
+
+Accordingly the governed FT3/FT4 development pin is amended from `typescript 7.0.2` to exact `typescript 6.0.3`. No other direct dependency is changed by this repair. The npm lockfile must be regenerated from the amended manifest and independently proven before candidate freeze.
 
 ## Admission rules
 
