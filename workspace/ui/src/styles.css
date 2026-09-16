@@ -1,0 +1,294 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #18232b;
+  background: #f4f7f8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+}
+
+.sidebar {
+  background: #ffffff;
+  border-right: 1px solid #dbe3e6;
+  padding: 1.25rem 0.9rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.5rem 1.4rem;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.65rem;
+  background: #183d4b;
+  color: white;
+  font-weight: 800;
+}
+
+.brand div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.brand span:not(.brand-mark) {
+  color: #60717a;
+  font-size: 0.82rem;
+}
+
+.nav-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.nav-item {
+  width: 100%;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: #33454e;
+  padding: 0.68rem 0.75rem;
+  text-align: left;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible {
+  background: #edf3f4;
+}
+
+.nav-item.active {
+  background: #e5eff1;
+  color: #153b47;
+  font-weight: 700;
+}
+
+.main-content {
+  padding: clamp(1rem, 3vw, 2.4rem);
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+}
+
+h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.15rem;
+}
+
+.eyebrow {
+  margin-bottom: 0.25rem;
+  color: #62747d;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.runtime-status {
+  display: flex;
+  gap: 1.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.runtime-status div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.runtime-status dt {
+  color: #6b7a82;
+}
+
+.runtime-status dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.65fr);
+  gap: 1rem;
+}
+
+.panel {
+  border: 1px solid #d8e1e4;
+  border-radius: 0.9rem;
+  background: white;
+  padding: 1.15rem;
+  box-shadow: 0 0.4rem 1.3rem rgb(22 48 58 / 6%);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 1rem 0;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  color: #4f6068;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+input {
+  width: 100%;
+  border: 1px solid #c8d4d8;
+  border-radius: 0.55rem;
+  background: white;
+  color: #18232b;
+  padding: 0.68rem 0.72rem;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid #75aebb;
+  outline-offset: 2px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.button-row button {
+  border: 1px solid #173d49;
+  border-radius: 0.55rem;
+  background: #173d49;
+  color: white;
+  padding: 0.62rem 0.9rem;
+  font-weight: 700;
+}
+
+.button-row button.secondary {
+  background: white;
+  color: #173d49;
+}
+
+.output-panel pre {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 0.6rem;
+  background: #f2f5f6;
+  padding: 0.8rem;
+  color: #33454e;
+  font-size: 0.78rem;
+}
+
+.coming-soon {
+  max-width: 44rem;
+}
+
+.coming-soon p:last-child {
+  margin-bottom: 0;
+  color: #55666e;
+  line-height: 1.6;
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #dbe3e6;
+    padding: 0.7rem;
+  }
+
+  .brand {
+    padding-bottom: 0.7rem;
+  }
+
+  .nav-list {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .main-content {
+    padding: 1rem;
+  }
+
+  .topbar {
+    display: grid;
+  }
+
+  .runtime-status {
+    flex-wrap: wrap;
+  }
+
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
