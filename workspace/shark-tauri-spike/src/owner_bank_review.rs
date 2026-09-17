@@ -18,6 +18,8 @@ const OWNER_BANK_BRIDGE_VERSION: u32 = 1;
 const BANK_ACCOUNT_CODE: &str = "1000";
 const MAX_STATEMENT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_MATCH_CANDIDATES: usize = 100;
+const OWNER_DISCOVERY_PAGE: i64 = 200;
+const MAX_DISCOVERY_RECORDS_PER_KIND: i64 = 1_000;
 const MAX_RECONCILIATION_ROWS: usize = 1_000;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -648,14 +650,16 @@ fn clearance_state(status: &str) -> OwnerBankResult<core::matching::ClearanceSta
     }
 }
 
-fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<ResolvedBankEntry> {
+fn optional_bank_entry(
+    transaction: &TransactionView,
+) -> OwnerBankResult<Option<ResolvedBankEntry>> {
     let mut matching = transaction
         .entries
         .iter()
         .filter(|entry| entry.account_code == BANK_ACCOUNT_CODE);
-    let entry = matching.next().ok_or_else(|| {
-        OwnerBankError::invalid("candidate transaction has no Business Bank entry")
-    })?;
+    let Some(entry) = matching.next() else {
+        return Ok(None);
+    };
     if matching.next().is_some() {
         return Err(OwnerBankError::invalid(
             "candidate transaction has more than one Business Bank entry",
@@ -673,12 +677,21 @@ fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<Resolve
             )));
         }
     };
-    Ok(ResolvedBankEntry {
+    Ok(Some(ResolvedBankEntry {
         transaction_id: transaction.id,
         entry_id: entry.id,
         signed_amount_pence,
         state: clearance_state(&entry.status)?,
-    })
+    }))
+}
+
+fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<ResolvedBankEntry> {
+    optional_bank_entry(transaction)?
+        .ok_or_else(|| OwnerBankError::invalid("candidate transaction has no Business Bank entry"))
+}
+
+fn bank_entry_is_discoverable(bank: &ResolvedBankEntry, already_matched: bool) -> bool {
+    !already_matched && bank.state != core::matching::ClearanceState::Reconciled
 }
 
 fn ledger_candidate(
@@ -861,7 +874,95 @@ fn bank_line_from_persisted(
 pub(crate) struct OwnerBankActivityMatchReviewRequest {
     books: OwnerBankBooksRef,
     bank_activity_id: i64,
-    candidate_transaction_ids: Vec<i64>,
+}
+
+fn current_owner_transaction_ids(books: &Books) -> OwnerBankResult<Option<Vec<i64>>> {
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+
+    for record_kind in ["moneyIn", "moneyOut"] {
+        let mut offset = 0_i64;
+        loop {
+            let remaining = MAX_DISCOVERY_RECORDS_PER_KIND - offset;
+            if remaining <= 0 {
+                return Ok(None);
+            }
+            let limit = OWNER_DISCOVERY_PAGE.min(remaining);
+            let rows = books
+                .owner_money_records(record_kind, limit, offset)
+                .map_err(OwnerBankError::foundation)?;
+            let row_count = i64::try_from(rows.len()).map_err(|_| {
+                OwnerBankError::invalid("owner candidate page size is not representable")
+            })?;
+            if row_count == 0 {
+                break;
+            }
+            for row in rows {
+                if seen.insert(row.transaction_id) {
+                    result.push(row.transaction_id);
+                }
+            }
+            offset += row_count;
+            if row_count < limit {
+                break;
+            }
+            if offset >= MAX_DISCOVERY_RECORDS_PER_KIND {
+                return Ok(None);
+            }
+        }
+    }
+
+    Ok(Some(result))
+}
+
+fn discover_persisted_match_transactions(
+    books: &Books,
+) -> OwnerBankResult<Option<Vec<TransactionView>>> {
+    let Some(transaction_ids) = current_owner_transaction_ids(books)? else {
+        return Ok(None);
+    };
+    let mut transactions = Vec::new();
+
+    for transaction_id in transaction_ids {
+        let transaction = books
+            .transaction(transaction_id)
+            .map_err(OwnerBankError::foundation)?;
+        let Some(bank) = optional_bank_entry(&transaction)? else {
+            continue;
+        };
+        let already_matched = books
+            .bank_match_for_entry(transaction.id, bank.entry_id)
+            .map_err(OwnerBankError::foundation)?
+            .is_some();
+        if !bank_entry_is_discoverable(&bank, already_matched) {
+            continue;
+        }
+        transactions.push(transaction);
+        if transactions.len() > MAX_MATCH_CANDIDATES {
+            return Ok(None);
+        }
+    }
+
+    Ok(Some(transactions))
+}
+
+fn bounded_unmatched_persisted_review(
+    persisted: &shark_foundation::BankActivityView,
+) -> OwnerBankResult<OwnerBankMatchReview> {
+    if persisted.matched_transaction_id.is_some() {
+        return Err(OwnerBankError::invalid(
+            "bank activity already has a confirmed match",
+        ));
+    }
+    let bank_line = bank_line_from_persisted(persisted)?;
+    Ok(OwnerBankMatchReview {
+        bridge_version: OWNER_BANK_BRIDGE_VERSION,
+        bank_line: line_view(&bank_line),
+        candidates: Vec::new(),
+        recommended_transaction_id: None,
+        ambiguous_top: false,
+        requires_explicit_confirmation: false,
+    })
 }
 
 fn match_review_from_persisted_activity(
@@ -884,21 +985,22 @@ pub(crate) fn owner_bank_activity_match_review(
     if request.bank_activity_id <= 0 {
         return Err(OwnerBankError::invalid("bank activity id must be positive"));
     }
-    require_transaction_ids(
-        &request.candidate_transaction_ids,
-        MAX_MATCH_CANDIDATES,
-        "candidate transaction ids",
-    )?;
     let books = request.books.open()?;
     let persisted = books
         .bank_activity(request.bank_activity_id)
         .map_err(OwnerBankError::foundation)?;
-    let transactions = request
-        .candidate_transaction_ids
-        .iter()
-        .map(|id| books.transaction(*id).map_err(OwnerBankError::foundation))
-        .collect::<OwnerBankResult<Vec<_>>>()?;
-    match_review_from_persisted_activity(&persisted, &transactions)
+    if persisted.matched_transaction_id.is_some() {
+        return Err(OwnerBankError::invalid(
+            "bank activity already has a confirmed match",
+        ));
+    }
+
+    match discover_persisted_match_transactions(&books)? {
+        Some(transactions) if !transactions.is_empty() => {
+            match_review_from_persisted_activity(&persisted, &transactions)
+        }
+        Some(_) | None => bounded_unmatched_persisted_review(&persisted),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1156,6 +1258,80 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn persisted_match_review_request_discovers_candidates_in_rust() {
+        let base = serde_json::json!({
+            "books": {
+                "fileName": "safe.sqlite",
+                "booksId": "safe-books",
+                "actor": "owner"
+            },
+            "bankActivityId": 17
+        });
+        assert!(
+            serde_json::from_value::<OwnerBankActivityMatchReviewRequest>(base.clone()).is_ok()
+        );
+
+        let mut bad = base;
+        bad.as_object_mut().unwrap().insert(
+            "candidateTransactionIds".to_string(),
+            serde_json::json!([1, 2, 3]),
+        );
+        assert!(
+            serde_json::from_value::<OwnerBankActivityMatchReviewRequest>(bad).is_err(),
+            "webview candidate IDs must be rejected for persisted activity match review"
+        );
+    }
+
+    #[test]
+    fn candidate_discovery_skips_cash_matched_and_reconciled_entries() {
+        let cash = TransactionView {
+            id: 90,
+            description: "Cash expense".to_string(),
+            reference: None,
+            currency: "GBP".to_string(),
+            date: "2026-09-10".to_string(),
+            entries: vec![EntryView {
+                id: 900,
+                account_code: "1010".to_string(),
+                direction: "credit".to_string(),
+                amount_minor: 1_000,
+                status: "uncleared".to_string(),
+            }],
+        };
+        assert!(optional_bank_entry(&cash).unwrap().is_none());
+
+        let uncleared = transaction(
+            91,
+            "2026-09-10",
+            "Bank expense",
+            "credit",
+            1_000,
+            "uncleared",
+        );
+        let uncleared_bank = optional_bank_entry(&uncleared).unwrap().unwrap();
+        assert!(bank_entry_is_discoverable(&uncleared_bank, false));
+        assert!(!bank_entry_is_discoverable(&uncleared_bank, true));
+
+        let reconciled = transaction(
+            92,
+            "2026-09-10",
+            "Reconciled expense",
+            "credit",
+            1_000,
+            "reconciled",
+        );
+        let reconciled_bank = optional_bank_entry(&reconciled).unwrap().unwrap();
+        assert!(!bank_entry_is_discoverable(&reconciled_bank, false));
+    }
+
+    #[test]
+    fn candidate_discovery_bounds_are_frozen() {
+        assert_eq!(OWNER_DISCOVERY_PAGE, 200);
+        assert_eq!(MAX_DISCOVERY_RECORDS_PER_KIND, 1_000);
+        assert_eq!(MAX_MATCH_CANDIDATES, 100);
     }
 
     #[test]

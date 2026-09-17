@@ -403,7 +403,7 @@ mod tests {
             !javascript_bundles.is_empty(),
             "Vite frontend JavaScript bundle is missing"
         );
-        let APP = javascript_bundles
+        let app_bundle = javascript_bundles
             .iter()
             .map(|path| std::fs::read_to_string(path).expect("read Vite JavaScript bundle"))
             .collect::<Vec<_>>()
@@ -422,13 +422,34 @@ mod tests {
 
         for command in [
             "foundation_health",
-            "production_encryption_required",
             "books_create",
             "books_open",
             "books_verify",
-            "books_trial_balance",
+            "owner_home_status",
+            "owner_money_in_preview",
+            "owner_money_in_save",
+            "owner_money_out_preview",
+            "owner_money_out_save",
+            "owner_money_records_list",
+            "owner_money_record_detail",
+            "owner_correction_preview",
+            "owner_correction_confirm",
+            "owner_correction_history",
+            "owner_bank_import_review_csv",
+            "owner_bank_import_review_ofx_qfx",
+            "owner_bank_import_confirm_csv",
+            "owner_bank_import_confirm_ofx_qfx",
+            "owner_bank_activity_list",
+            "owner_bank_activity_detail",
+            "owner_bank_activity_match_review",
+            "owner_bank_match_confirm",
+            "owner_bank_reconcile_preview",
+            "owner_bank_reconcile_finalise",
         ] {
-            assert!(APP.contains(command), "frontend missing command {command}");
+            assert!(
+                app_bundle.contains(command),
+                "UI-A frontend missing admitted command {command}"
+            );
         }
 
         for forbidden in [
@@ -436,31 +457,20 @@ mod tests {
             "passphrase",
             "dbPath",
             "databasePath",
+            "books_trial_balance",
+            "production_encryption_required",
             "ocr_extract_receipt",
-            "owner_home_status",
-            "owner_money_in_preview",
-            "owner_money_in_save",
-            "owner_money_out_preview",
-            "owner_money_out_save",
             "owner_bank_import_preview_csv",
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
-            "owner_bank_reconcile_preview",
-            "owner_bank_import_confirm_csv",
-            "owner_bank_import_confirm_ofx_qfx",
-            "owner_bank_activity_list",
-            "owner_bank_match_confirm",
-            "owner_bank_reconcile_finalise",
             "owner_document_select_register",
             "owner_document_verify",
+            "owner_document_open_view",
             "owner_document_attach",
             "owner_ocr_extract_receipt",
             "owner_receipt_suggest_bank",
             "owner_receipt_confirm_bank",
             "owner_receipt_reject_bank",
-            "owner_correction_preview",
-            "owner_correction_confirm",
-            "owner_correction_history",
             "owner_contacts_list",
             "owner_contacts_save",
             "owner_settings_books_info",
@@ -470,12 +480,39 @@ mod tests {
             "modelPath",
             "executablePath",
             "shellCommand",
-            "http://",
-            "https://",
         ] {
             assert!(
-                !APP.contains(forbidden) && !INDEX.contains(forbidden),
-                "frontend contains forbidden/premature surface: {forbidden}"
+                !app_bundle.contains(forbidden) && !INDEX.contains(forbidden),
+                "UI-A frontend contains forbidden or premature surface: {forbidden}"
+            );
+        }
+
+        let ui_source = [
+            include_str!("../../ui/src/App.vue"),
+            include_str!("../../ui/src/lib/tauri.ts"),
+            include_str!("../../ui/src/lib/session.ts"),
+            include_str!("../../ui/src/screens/HomeScreen.vue"),
+            include_str!("../../ui/src/screens/MoneyScreen.vue"),
+            include_str!("../../ui/src/screens/BankScreen.vue"),
+        ]
+        .join("\n");
+        for forbidden in [
+            "fetch(",
+            "XMLHttpRequest",
+            "WebSocket",
+            "EventSource",
+            "http://",
+            "https://",
+            "databasePath",
+            "dbPath",
+            "shellCommand",
+            "inputPath",
+            "modelPath",
+            "executablePath",
+        ] {
+            assert!(
+                !ui_source.contains(forbidden),
+                "Shark UI-A source contains forbidden network/path/shell authority: {forbidden}"
             );
         }
     }

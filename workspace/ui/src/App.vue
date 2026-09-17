@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
-import {
-  createBooks,
-  foundationHealth,
-  openBooks,
-  productionEncryptionRequired,
-  verifyBooks,
-} from "./lib/tauri";
+import { computed, ref } from "vue";
+import HomeScreen from "./screens/HomeScreen.vue";
+import MoneyScreen from "./screens/MoneyScreen.vue";
+import BankScreen from "./screens/BankScreen.vue";
+import { createBooksSession } from "./lib/session";
 
 const sections = [
   "Home",
@@ -22,52 +19,13 @@ const sections = [
 type Section = (typeof sections)[number];
 
 const activeSection = ref<Section>("Home");
-const busy = ref(false);
-const output = ref("Ready.");
-const foundation = ref("checking");
-const encryption = ref("checking");
+const session = createBooksSession();
 
-const books = reactive({
-  fileName: "my-books.sqlite",
-  booksId: "my-books",
-  companyName: "My business",
-  actor: "owner",
-});
-
-const booksRef = computed(() => ({
-  fileName: books.fileName.trim(),
-  booksId: books.booksId.trim(),
-  actor: books.actor.trim(),
-}));
-
-async function run(operation: () => Promise<unknown>) {
-  if (busy.value) return;
-  busy.value = true;
-  try {
-    const value = await operation();
-    output.value =
-      typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  } catch (error) {
-    output.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy.value = false;
-  }
-}
-
-onMounted(async () => {
-  try {
-    const [health, required] = await Promise.all([
-      foundationHealth(),
-      productionEncryptionRequired(),
-    ]);
-    foundation.value = health;
-    encryption.value = required ? "required" : "unexpectedly disabled";
-  } catch (error) {
-    foundation.value = "native bridge unavailable";
-    encryption.value = "unknown";
-    output.value = error instanceof Error ? error.message : String(error);
-  }
-});
+const subtitle = computed(() =>
+  session.state.isOpen && session.state.home
+    ? session.state.home.companyName
+    : "Local owner workspace",
+);
 </script>
 
 <template>
@@ -101,95 +59,32 @@ onMounted(async () => {
         <div>
           <p class="eyebrow">SBC-7B2 owner workspace</p>
           <h1>{{ activeSection }}</h1>
+          <p class="topbar-subtitle">{{ subtitle }}</p>
         </div>
-        <dl class="runtime-status" aria-label="Runtime status">
-          <div>
-            <dt>Foundation</dt>
-            <dd>{{ foundation }}</dd>
-          </div>
-          <div>
-            <dt>Encryption</dt>
-            <dd>{{ encryption }}</dd>
-          </div>
-        </dl>
+        <span class="session-chip" :class="{ open: session.state.isOpen }">
+          {{ session.state.isOpen ? "Books open" : "Books closed" }}
+        </span>
       </header>
 
-      <section v-if="activeSection === 'Home'" class="content-grid">
-        <article class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Books</p>
-              <h2>Open or create your books</h2>
-            </div>
-          </div>
-
-          <form class="field-grid" @submit.prevent>
-            <label>
-              <span>Books file</span>
-              <input v-model="books.fileName" autocomplete="off" />
-            </label>
-            <label>
-              <span>Books ID</span>
-              <input v-model="books.booksId" autocomplete="off" />
-            </label>
-            <label>
-              <span>Business name</span>
-              <input v-model="books.companyName" autocomplete="organization" />
-            </label>
-            <label>
-              <span>Actor</span>
-              <input v-model="books.actor" autocomplete="off" />
-            </label>
-          </form>
-
-          <div class="button-row">
-            <button
-              type="button"
-              :disabled="busy"
-              @click="
-                run(() =>
-                  createBooks({
-                    ...booksRef,
-                    companyName: books.companyName.trim(),
-                  }),
-                )
-              "
-            >
-              Create books
-            </button>
-            <button
-              type="button"
-              class="secondary"
-              :disabled="busy"
-              @click="run(() => openBooks(booksRef))"
-            >
-              Open books
-            </button>
-            <button
-              type="button"
-              class="secondary"
-              :disabled="busy"
-              @click="run(() => verifyBooks(booksRef))"
-            >
-              Check books
-            </button>
-          </div>
-        </article>
-
-        <article class="panel output-panel">
-          <p class="eyebrow">Native result</p>
-          <h2>Latest operation</h2>
-          <pre aria-live="polite">{{ output }}</pre>
-        </article>
-      </section>
+      <HomeScreen v-if="activeSection === 'Home'" :session="session" />
+      <MoneyScreen
+        v-else-if="activeSection === 'Money in'"
+        :session="session"
+        kind="moneyIn"
+      />
+      <MoneyScreen
+        v-else-if="activeSection === 'Money out'"
+        :session="session"
+        kind="moneyOut"
+      />
+      <BankScreen v-else-if="activeSection === 'Bank'" :session="session" />
 
       <section v-else class="panel coming-soon" aria-live="polite">
-        <p class="eyebrow">Integration slice</p>
-        <h2>{{ activeSection }} is not wired yet</h2>
+        <p class="eyebrow">UI-B</p>
+        <h2>{{ activeSection }} is not available in UI-A yet</h2>
         <p>
-          This source scaffold freezes the permanent navigation without pretending
-          an unfinished owner action exists. The screen will be connected only to
-          admitted Action IDs and bounded Shark operations.
+          This permanent navigation item is reserved for the next substantial UI-B batch.
+          Shark Books will not simulate an unfinished action through a different backend route.
         </p>
       </section>
     </main>
