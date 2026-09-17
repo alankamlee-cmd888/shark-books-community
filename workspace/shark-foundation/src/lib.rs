@@ -29,10 +29,10 @@ mod document_application;
 mod mutation_audit_application;
 mod owner_read_application;
 pub use bank_application::{
-    BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
-    BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
-    BankReconciliationPersistOutcome, BankReconciliationRecord, BankReconciliationView,
-    BankReconciliationWrite,
+    BankActivityPersistKind, BankActivityPersistOutcome, BankActivityReviewKind,
+    BankActivityReviewOutcome, BankActivityView, BankActivityWrite, BankMatchPersistOutcome,
+    BankMatchView, BankMatchWrite, BankReconciliationEntryWrite, BankReconciliationPersistOutcome,
+    BankReconciliationRecord, BankReconciliationView, BankReconciliationWrite,
 };
 pub use contact_application::{ContactPersistOutcome, ContactView, ContactWrite};
 pub use document_application::{
