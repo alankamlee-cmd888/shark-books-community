@@ -161,6 +161,34 @@ class RelayTests(unittest.TestCase):
         with self.assertRaises(relay.RelayError):
             relay.run_once(self.root, self.outbox, self.state)
 
+    def test_baseline_existing_suppresses_history(self) -> None:
+        self.write_result("SLE-HIST-001", {"task_id": "SLE-HIST-001", "passed": True})
+        count = relay.baseline_existing(self.root, self.state)
+        self.assertEqual(count, 1)
+        self.assertFalse(self.outbox.exists())
+        self.assertEqual(relay.run_once(self.root, self.outbox, self.state), (0, 1))
+
+    def test_baseline_cannot_overwrite_existing_state(self) -> None:
+        self.write_result("SLE-HIST-002", {"task_id": "SLE-HIST-002", "passed": True})
+        relay.baseline_existing(self.root, self.state)
+        with self.assertRaises(relay.RelayError):
+            relay.baseline_existing(self.root, self.state)
+
+    def test_heartbeat_is_metadata_only(self) -> None:
+        relay.write_heartbeat(self.root, state="WATCHING", note="ok", baseline_count=3)
+        hb = json.loads((self.root / relay.HEARTBEAT_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(hb["relay_version"], relay.RELAY_VERSION)
+        self.assertIs(hb["network_authority"], False)
+        self.assertEqual(hb["outbox_relpath"], "relay_outbox")
+        self.assertNotIn("queue_root", hb)
+
+    def test_single_instance_lock_rejects_second_holder(self) -> None:
+        lock = Path(self.tmp.name) / "lock" / "relay.lock"
+        with relay.SingleInstance(lock):
+            with self.assertRaises(relay.RelayError):
+                with relay.SingleInstance(lock):
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
