@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 import sys
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,6 +182,44 @@ class RelayTests(unittest.TestCase):
         self.assertIs(hb["network_authority"], False)
         self.assertEqual(hb["outbox_relpath"], "relay_outbox")
         self.assertNotIn("queue_root", hb)
+
+    def test_atomic_write_retries_transient_permission_error(self) -> None:
+        target = self.root / "retry.json"
+        real_replace = os.replace
+        calls = {"n": 0}
+
+        def flaky_replace(src, dst):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise PermissionError(13, "simulated Dropbox contention")
+            return real_replace(src, dst)
+
+        with patch.object(relay.os, "replace", side_effect=flaky_replace):
+            relay.atomic_write(
+                target,
+                b'{"ok":true}\n',
+                replace_timeout_seconds=1.0,
+                initial_retry_seconds=0.001,
+                max_retry_seconds=0.002,
+            )
+
+        self.assertEqual(calls["n"], 4)
+        self.assertEqual(target.read_bytes(), b'{"ok":true}\n')
+        self.assertEqual(list(target.parent.glob(target.name + ".*.tmp")), [])
+
+    def test_atomic_write_fails_closed_after_persistent_permission_error(self) -> None:
+        target = self.root / "persistent.json"
+        with patch.object(relay.os, "replace", side_effect=PermissionError(13, "persistent contention")):
+            with self.assertRaises(relay.RelayError):
+                relay.atomic_write(
+                    target,
+                    b'{"ok":false}\n',
+                    replace_timeout_seconds=0.01,
+                    initial_retry_seconds=0.001,
+                    max_retry_seconds=0.002,
+                )
+        self.assertFalse(target.exists())
+        self.assertEqual(list(target.parent.glob(target.name + ".*.tmp")), [])
 
     def test_single_instance_lock_rejects_second_holder(self) -> None:
         lock = Path(self.tmp.name) / "lock" / "relay.lock"
