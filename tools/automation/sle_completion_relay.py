@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shark Local Executor completion relay v1.0.0.
+"""Shark Local Executor completion relay v1.0.1.
 
 Deterministic local sidecar for AUT-1. It observes already-published SLE terminal
 artifacts and emits a metadata-only canonical event into a Dropbox-synced outbox.
@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-RELAY_VERSION = "1.0.0"
+RELAY_VERSION = "1.0.1"
 SCHEMA_VERSION = 1
 EVENT_TYPE = "SLE_TASK_TERMINAL"
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -37,6 +37,9 @@ MAX_TERMINAL_BYTES = 16 * 1024 * 1024
 MAX_EVENT_BYTES = 8 * 1024
 DEFAULT_POLL_SECONDS = 2.0
 HEARTBEAT_NAME = "relay_heartbeat.json"
+DROPBOX_REPLACE_TIMEOUT_SECONDS = 15.0
+DROPBOX_REPLACE_INITIAL_DELAY_SECONDS = 0.05
+DROPBOX_REPLACE_MAX_DELAY_SECONDS = 0.5
 
 
 class RelayError(RuntimeError):
@@ -228,7 +231,48 @@ def load_state(path: Path) -> dict[str, str]:
     return result
 
 
-def atomic_write(path: Path, data: bytes) -> None:
+def _retryable_replace_error(exc: OSError) -> bool:
+    # Dropbox Desktop and Windows AV/indexing can briefly deny replacement of a
+    # synced destination (commonly WinError 5 / 32). PermissionError is also
+    # retryable on non-Windows test hosts so the contention contract is portable.
+    return isinstance(exc, PermissionError) or getattr(exc, "winerror", None) in {5, 32}
+
+
+def replace_with_retry(
+    temp_path: Path,
+    path: Path,
+    *,
+    timeout_seconds: float = DROPBOX_REPLACE_TIMEOUT_SECONDS,
+    initial_delay_seconds: float = DROPBOX_REPLACE_INITIAL_DELAY_SECONDS,
+    max_delay_seconds: float = DROPBOX_REPLACE_MAX_DELAY_SECONDS,
+) -> int:
+    if timeout_seconds <= 0:
+        raise RelayError("atomic replace retry timeout must be positive")
+    deadline = time.monotonic() + timeout_seconds
+    delay = max(0.001, initial_delay_seconds)
+    attempts = 0
+    while True:
+        try:
+            os.replace(temp_path, path)
+            return attempts
+        except OSError as exc:
+            attempts += 1
+            if not _retryable_replace_error(exc) or time.monotonic() >= deadline:
+                raise RelayError(
+                    f"atomic replace failed for {path.name} after {attempts} attempt(s): {exc}"
+                ) from exc
+            time.sleep(delay)
+            delay = min(max_delay_seconds, max(delay, 0.001) * 2)
+
+
+def atomic_write(
+    path: Path,
+    data: bytes,
+    *,
+    replace_timeout_seconds: float = DROPBOX_REPLACE_TIMEOUT_SECONDS,
+    initial_retry_seconds: float = DROPBOX_REPLACE_INITIAL_DELAY_SECONDS,
+    max_retry_seconds: float = DROPBOX_REPLACE_MAX_DELAY_SECONDS,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(prefix=path.name + ".", suffix=".tmp", dir=path.parent, delete=False) as handle:
         temp_path = Path(handle.name)
@@ -236,7 +280,13 @@ def atomic_write(path: Path, data: bytes) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     try:
-        os.replace(temp_path, path)
+        replace_with_retry(
+            temp_path,
+            path,
+            timeout_seconds=replace_timeout_seconds,
+            initial_delay_seconds=initial_retry_seconds,
+            max_delay_seconds=max_retry_seconds,
+        )
     finally:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
