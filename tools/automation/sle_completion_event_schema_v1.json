@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mtdshark.local/schemas/sle_completion_event_v1.json",
+  "title": "Shark Local Executor terminal completion event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "event_id",
+    "task_id",
+    "terminal_state",
+    "terminal_artifact_name",
+    "terminal_artifact_sha256",
+    "terminal_artifact_size_bytes",
+    "evidence_relpath",
+    "relay_version",
+    "emitted_at_utc"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_type": {"const": "SLE_TASK_TERMINAL"},
+    "event_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "terminal_state": {"enum": ["COMPLETED", "FAILED"]},
+    "terminal_artifact_name": {"enum": ["result.json", "error.json", "failure.json"]},
+    "terminal_artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "terminal_artifact_size_bytes": {"type": "integer", "minimum": 2, "maximum": 16777216},
+    "evidence_relpath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(completed|failed)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/(result|error|failure)\\.json$"
+    },
+    "relay_version": {"const": "1.0.0"},
+    "emitted_at_utc": {"type": "string", "format": "date-time"},
+    "executor_version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "passed": {"type": "boolean"}
+  }
+}
