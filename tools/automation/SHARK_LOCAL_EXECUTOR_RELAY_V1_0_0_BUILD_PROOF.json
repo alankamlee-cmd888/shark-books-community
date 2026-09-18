@@ -1,0 +1,27 @@
+{
+  "document_type": "SHARK_LOCAL_EXECUTOR_RELAY_V1_0_0_BUILD_PROOF",
+  "date": "2026-09-18",
+  "status": "OFFLINE_AUT1ABC_PASS_INSTALLER_READY",
+  "relay_sha256": "56e6abd6adbf86eacd6e674ccf3ec5a46a87f3da14eb4b91a82b7ef4bf945929",
+  "tests_sha256": "3080934a6a120bb3a292e35ccd4f02548b003435ed47f56959bf8359caca0f25",
+  "schema_sha256": "32e3b54efa9034dcc9cd8bc3463b100634a5ab49034949e6a2d30e35032c7fc0",
+  "candidate_zip_sha256": "40a16f907530de0fe1a4f05b22a3a2021f43c3fe332caa41ed610975ed883a1a",
+  "outer_install_bundle_sha256": "83d741fb231214739467fc3efdee546cd48ef585f3583376bdc1ca7f1a93a08b",
+  "sle_required_executor_sha256": "551a502b6f5d2ffba1b8c2d4640ed9e90b833ba273fe9036488cdc72b92dc0bb",
+  "offline_tests": {
+    "count": 17,
+    "passed": 17,
+    "failed": 0
+  },
+  "installer_design": {
+    "separate_sidecar": true,
+    "modifies_sle": false,
+    "admin_required": false,
+    "baselines_existing_history": true,
+    "adds_user_login_startup": true,
+    "network_authority": false,
+    "git_authority": false,
+    "public_release_authority": false
+  },
+  "next_gate": "AUT-1D live install and one safe terminal-event proof"
+}
