@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REGISTRY = ROOT / "workspace/shark-foundation/data"
+OUTPUT = ROOT / "workspace/ui/src/generated/uia-actions.ts"
+
+SELECTORS = {
+    "booksCreate": {"needle": "books_create"},
+    "booksOpen": {"needle": "books_open"},
+    "booksVerify": {"needle": "books_verify"},
+    "homeStatus": {"needle": "owner_home_status"},
+    "moneyInPreview": {"needle": "owner_money_in_preview"},
+    "moneyInSave": {"needle": "owner_money_in_save"},
+    "moneyOutPreview": {"needle": "owner_money_out_preview"},
+    "moneyOutSave": {"needle": "owner_money_out_save"},
+    "moneyRecordsList": {"action_id": "MONEY.RECORDS.LIST"},
+    "moneyRecordDetail": {"action_id": "MONEY.RECORD.DETAIL"},
+    "correctionPreview": {"needle": "owner_correction_preview"},
+    "correctionConfirm": {"needle": "owner_correction_confirm"},
+    "correctionHistory": {"needle": "owner_correction_history"},
+    "bankImportReviewCsv": {"action_id": "BANK.IMPORT_PREVIEW_CSV"},
+    "bankImportReviewOfxQfx": {"action_id": "BANK.IMPORT_PREVIEW_OFX_QFX"},
+    "bankImportConfirmCsv": {"action_id": "BANK.IMPORT_CONFIRM_CSV"},
+    "bankImportConfirmOfxQfx": {"action_id": "BANK.IMPORT_CONFIRM_OFX_QFX"},
+    "bankActivityList": {"needle": "owner_bank_activity_list"},
+    "bankActivityDetail": {"action_id": "BANK.ACTIVITY_DETAIL"},
+    "bankMatchReview": {"needle": "owner_bank_match_review"},
+    "bankMatchConfirm": {"needle": "owner_bank_match_confirm"},
+    "bankReconcilePreview": {"needle": "owner_bank_reconcile_preview"},
+    "bankReconcileFinalise": {"needle": "owner_bank_reconcile_finalise"},
+}
+
+EXPECTED_CRITICAL_IDS = {
+    "bankImportReviewCsv": "BANK.IMPORT_PREVIEW_CSV",
+    "bankImportReviewOfxQfx": "BANK.IMPORT_PREVIEW_OFX_QFX",
+    "bankImportConfirmCsv": "BANK.IMPORT_CONFIRM_CSV",
+    "bankImportConfirmOfxQfx": "BANK.IMPORT_CONFIRM_OFX_QFX",
+    "bankActivityList": "BANK.ACTIVITY_LIST",
+    "bankActivityDetail": "BANK.ACTIVITY_DETAIL",
+    "bankMatchReview": "BANK.MATCH_REVIEW",
+    "bankMatchConfirm": "BANK.MATCH_CONFIRM",
+    "bankReconcilePreview": "BANK.RECONCILE_PREVIEW",
+    "bankReconcileFinalise": "BANK.RECONCILE_FINALISE",
+}
+
+def load_actions():
+    rows = []
+    for index in range(1, 25):
+        path = REGISTRY / f"action_registry_v1_chunk{index:02d}.jsonl"
+        if not path.is_file():
+            raise SystemExit(f"missing registry chunk: {path}")
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    if len(rows) != 206:
+        raise SystemExit(f"expected 206 canonical actions, found {len(rows)}")
+    ids = [row["action_id"] for row in rows]
+    if len(set(ids)) != 206:
+        raise SystemExit("Action Registry IDs are not unique")
+    return rows
+
+def choose(rows, selector):
+    if "action_id" in selector:
+        matches = [row for row in rows if row["action_id"] == selector["action_id"]]
+    else:
+        needle = selector["needle"]
+        matches = [
+            row
+            for row in rows
+            if needle in str(row.get("backend_basis") or "")
+        ]
+    if len(matches) != 1:
+        raise SystemExit(f"selector {selector} matched {len(matches)} ActionSpecs")
+    return matches[0]
+
+def resolve(rows):
+    selected = {
+        key: choose(rows, selector)
+        for key, selector in SELECTORS.items()
+    }
+    if len(selected) != 23:
+        raise SystemExit(f"expected 23 UI-A selectors, found {len(selected)}")
+    action_ids = [row["action_id"] for row in selected.values()]
+    if len(set(action_ids)) != 23:
+        duplicates = sorted(
+            action_id for action_id in set(action_ids)
+            if action_ids.count(action_id) > 1
+        )
+        raise SystemExit(
+            "UI-A selectors do not resolve one-to-one; duplicate Action IDs: "
+            + ", ".join(duplicates)
+        )
+    for key, expected in EXPECTED_CRITICAL_IDS.items():
+        observed = selected[key]["action_id"]
+        if observed != expected:
+            raise SystemExit(
+                f"{key} resolved to {observed}, expected canonical {expected}"
+            )
+    return selected
+
+def shape(row):
+    return {
+        "actionId": row["action_id"],
+        "manualLabel": row["manual_label"],
+        "family": row["family"],
+        "authorityClass": row["authority_class"],
+        "confirmationClass": row["confirmation_class"],
+        "confirmationPolicy": row["confirmation_policy"],
+        "requiredSlots": row["required_slots"],
+        "choiceHints": row["choice_hints"],
+        "availabilityState": row["availability_state"],
+        "backendState": row["backend_state"],
+    }
+
+def render(selected):
+    shaped = {key: shape(row) for key, row in selected.items()}
+    payload = json.dumps(shaped, ensure_ascii=False, indent=2)
+    return (
+        "// GENERATED by scripts/generate_sbc7b2_uia_actions.py. DO NOT EDIT.\n"
+        "// Semantic fields come directly from the canonical Shark Action Registry.\n\n"
+        f"export const UIA_ACTIONS = {payload} as const;\n\n"
+        "export type UiAActionKey = keyof typeof UIA_ACTIONS;\n"
+    )
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--audit", action="store_true")
+    args = parser.parse_args()
+
+    rows = load_actions()
+    selected = resolve(rows)
+
+    if args.audit:
+        print("PASS: 23 UI-A Action selectors resolve one-to-one")
+        for key in SELECTORS:
+            print(f"{key} -> {selected[key]['action_id']}")
+        return
+
+    rendered = render(selected)
+    if args.check:
+        if not OUTPUT.is_file():
+            raise SystemExit("generated UI-A Action metadata is missing")
+        current = OUTPUT.read_text(encoding="utf-8")
+        if current != rendered:
+            raise SystemExit("generated UI-A Action metadata is stale")
+        print("PASS: generated UI-A Action metadata is reproducible")
+        return
+
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_text(rendered, encoding="utf-8", newline="\n")
+    print(f"WROTE {OUTPUT.relative_to(ROOT)}")
+
+if __name__ == "__main__":
+    main()

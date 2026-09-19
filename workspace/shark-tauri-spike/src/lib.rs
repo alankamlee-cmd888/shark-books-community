@@ -10,6 +10,7 @@ mod owner_bank_mutation;
 mod owner_bank_review;
 mod owner_documents_ocr;
 mod owner_mutation_audit;
+mod owner_read_views;
 mod owner_supporting_data;
 
 use std::fs;
@@ -82,11 +83,7 @@ fn io_error(error: std::io::Error) -> FoundationError {
     FoundationError::new(FoundationErrorCode::Io, error.to_string())
 }
 
-fn require_bounded_text(
-    label: &str,
-    value: &str,
-    max_chars: usize,
-) -> Result<(), FoundationError> {
+fn require_bounded_text(label: &str, value: &str, max_chars: usize) -> Result<(), FoundationError> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(invalid_input(format!("{label} must not be empty")));
@@ -106,7 +103,9 @@ fn proof_books_root() -> Result<PathBuf, FoundationError> {
     })?;
     let root = PathBuf::from(root);
     if root.as_os_str().is_empty() {
-        return Err(invalid_input("SBC-1D proof books directory must not be empty"));
+        return Err(invalid_input(
+            "SBC-1D proof books directory must not be empty",
+        ));
     }
     Ok(root)
 }
@@ -253,6 +252,13 @@ pub fn run() {
             owner_app::owner_money_in_save,
             owner_app::owner_money_out_preview,
             owner_app::owner_money_out_save,
+            owner_read_views::owner_money_records_list,
+            owner_read_views::owner_money_record_detail,
+            owner_read_views::owner_bank_activity_detail,
+            owner_read_views::owner_document_list,
+            owner_bank_review::owner_bank_import_review_csv,
+            owner_bank_review::owner_bank_import_review_ofx_qfx,
+            owner_bank_review::owner_bank_activity_match_review,
             owner_bank_review::owner_bank_import_preview_csv,
             owner_bank_review::owner_bank_import_preview_ofx_qfx,
             owner_bank_review::owner_bank_match_review,
@@ -264,6 +270,7 @@ pub fn run() {
             owner_bank_mutation::owner_bank_reconcile_finalise,
             owner_documents_ocr::owner_document_select_register,
             owner_documents_ocr::owner_document_verify,
+            owner_documents_ocr::owner_document_open_view,
             owner_documents_ocr::owner_document_attach,
             owner_documents_ocr::owner_ocr_extract_receipt,
             owner_mutation_audit::owner_receipt_suggest_bank,
@@ -345,7 +352,10 @@ mod tests {
         let mut file = fs::File::open(&path).expect("encrypted books file exists");
         let mut header = [0_u8; 16];
         file.read_exact(&mut header).expect("read encrypted header");
-        assert_ne!(&header, b"SQLite format 3\0", "books file is plaintext SQLite");
+        assert_ne!(
+            &header, b"SQLite format 3\0",
+            "books file is plaintext SQLite"
+        );
 
         let open = OpenBooksRequest {
             file_name: created.file_name.clone(),
@@ -381,7 +391,23 @@ mod tests {
     #[test]
     fn frontend_contract_is_keyless_and_uses_only_bounded_commands() {
         const INDEX: &str = include_str!("../../dist/index.html");
-        const APP: &str = include_str!("../../dist/app.js");
+        let assets_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist/assets");
+        let mut javascript_bundles = std::fs::read_dir(&assets_dir)
+            .expect("read Vite frontend assets")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("js"))
+            .collect::<Vec<_>>();
+        javascript_bundles.sort();
+        assert!(
+            !javascript_bundles.is_empty(),
+            "Vite frontend JavaScript bundle is missing"
+        );
+        let app_bundle = javascript_bundles
+            .iter()
+            .map(|path| std::fs::read_to_string(path).expect("read Vite JavaScript bundle"))
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let unknown_secret = serde_json::json!({
             "fileName": "safe.sqlite",
@@ -396,13 +422,48 @@ mod tests {
 
         for command in [
             "foundation_health",
-            "production_encryption_required",
             "books_create",
             "books_open",
             "books_verify",
-            "books_trial_balance",
+            "owner_home_status",
+            "owner_money_in_preview",
+            "owner_money_in_save",
+            "owner_money_out_preview",
+            "owner_money_out_save",
+            "owner_money_records_list",
+            "owner_money_record_detail",
+            "owner_correction_preview",
+            "owner_correction_confirm",
+            "owner_correction_history",
+            "owner_bank_import_review_csv",
+            "owner_bank_import_review_ofx_qfx",
+            "owner_bank_import_confirm_csv",
+            "owner_bank_import_confirm_ofx_qfx",
+            "owner_bank_activity_list",
+            "owner_bank_activity_detail",
+            "owner_bank_activity_match_review",
+            "owner_bank_match_confirm",
+            "owner_bank_reconcile_preview",
+            "owner_bank_reconcile_finalise",
+            "owner_document_select_register",
+            "owner_document_verify",
+            "owner_document_list",
+            "owner_document_open_view",
+            "owner_document_attach",
+            "owner_ocr_extract_receipt",
+            "owner_receipt_suggest_bank",
+            "owner_receipt_confirm_bank",
+            "owner_receipt_reject_bank",
+            "owner_contacts_list",
+            "owner_contacts_save",
+            "owner_settings_books_info",
+            "owner_settings_storage_root_select",
+            "owner_report_summary",
         ] {
-            assert!(APP.contains(command), "frontend missing command {command}");
+            assert!(
+                app_bundle.contains(command),
+                "UI-A frontend missing admitted command {command}"
+            );
         }
 
         for forbidden in [
@@ -410,46 +471,60 @@ mod tests {
             "passphrase",
             "dbPath",
             "databasePath",
-            "ocr_extract_receipt",
-            "owner_home_status",
-            "owner_money_in_preview",
-            "owner_money_in_save",
-            "owner_money_out_preview",
-            "owner_money_out_save",
+            "books_trial_balance",
+            "production_encryption_required",
             "owner_bank_import_preview_csv",
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
-            "owner_bank_reconcile_preview",
-            "owner_bank_import_confirm_csv",
-            "owner_bank_import_confirm_ofx_qfx",
-            "owner_bank_activity_list",
-            "owner_bank_match_confirm",
-            "owner_bank_reconcile_finalise",
-            "owner_document_select_register",
-            "owner_document_verify",
-            "owner_document_attach",
-            "owner_ocr_extract_receipt",
-            "owner_receipt_suggest_bank",
-            "owner_receipt_confirm_bank",
-            "owner_receipt_reject_bank",
-            "owner_correction_preview",
-            "owner_correction_confirm",
-            "owner_correction_history",
-            "owner_contacts_list",
-            "owner_contacts_save",
-            "owner_settings_books_info",
-            "owner_settings_storage_root_select",
-            "owner_report_summary",
             "inputPath",
             "modelPath",
             "executablePath",
             "shellCommand",
-            "http://",
-            "https://",
         ] {
             assert!(
-                !APP.contains(forbidden) && !INDEX.contains(forbidden),
-                "frontend contains forbidden/premature surface: {forbidden}"
+                !app_bundle.contains(forbidden) && !INDEX.contains(forbidden),
+                "UI-A frontend contains forbidden or premature surface: {forbidden}"
+            );
+        }
+
+        const TAURI_SOURCE: &str = include_str!("../../ui/src/lib/tauri.ts");
+        assert!(
+            !TAURI_SOURCE.contains("\"ocr_extract_receipt\""),
+            "permanent frontend must not invoke the raw OCR shell command"
+        );
+
+        let ui_source = [
+            include_str!("../../ui/src/App.vue"),
+            include_str!("../../ui/src/lib/tauri.ts"),
+            include_str!("../../ui/src/lib/session.ts"),
+            include_str!("../../ui/src/screens/HomeScreen.vue"),
+            include_str!("../../ui/src/screens/MoneyScreen.vue"),
+            include_str!("../../ui/src/screens/BankScreen.vue"),
+            include_str!("../../ui/src/screens/ReceiptsScreen.vue"),
+            include_str!("../../ui/src/screens/ContactsScreen.vue"),
+            include_str!("../../ui/src/screens/ReportsScreen.vue"),
+            include_str!("../../ui/src/screens/SettingsScreen.vue"),
+            include_str!("../../ui/src/components/DocumentTable.vue"),
+            include_str!("../../ui/src/components/ContactsTable.vue"),
+        ]
+        .join("\n");
+        for forbidden in [
+            "fetch(",
+            "XMLHttpRequest",
+            "WebSocket",
+            "EventSource",
+            "http://",
+            "https://",
+            "databasePath",
+            "dbPath",
+            "shellCommand",
+            "inputPath",
+            "modelPath",
+            "executablePath",
+        ] {
+            assert!(
+                !ui_source.contains(forbidden),
+                "Shark UI-A source contains forbidden network/path/shell authority: {forbidden}"
             );
         }
     }
@@ -467,6 +542,15 @@ mod tests {
             serde_json::Value::Bool(true)
         );
         assert!(config["app"]["security"]["csp"].is_object());
+        let csp = &config["app"]["security"]["csp"];
+        assert_eq!(csp["img-src"], "'self' blob:");
+        assert_eq!(csp["frame-src"], "'self' blob:");
+        for directive in ["img-src", "frame-src"] {
+            let value = csp[directive].as_str().expect("CSP directive string");
+            for forbidden in ["http:", "https:", "data:", "file:", "*"] {
+                assert!(!value.contains(forbidden), "{directive} contains forbidden origin {forbidden}");
+            }
+        }
 
         let capability: serde_json::Value =
             serde_json::from_str(CAPABILITY).expect("valid capability");
@@ -497,6 +581,8 @@ mod tests {
             "owner_money_in_save",
             "owner_money_out_preview",
             "owner_money_out_save",
+            "owner_money_records_list",
+            "owner_money_record_detail",
             "owner_bank_import_preview_csv",
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
@@ -504,10 +590,13 @@ mod tests {
             "owner_bank_import_confirm_csv",
             "owner_bank_import_confirm_ofx_qfx",
             "owner_bank_activity_list",
+            "owner_bank_activity_detail",
             "owner_bank_match_confirm",
             "owner_bank_reconcile_finalise",
             "owner_document_select_register",
             "owner_document_verify",
+            "owner_document_list",
+            "owner_document_open_view",
             "owner_document_attach",
             "owner_ocr_extract_receipt",
             "owner_receipt_suggest_bank",
