@@ -308,3 +308,20 @@ button.compact { padding: 0.5rem 0.72rem; font-size: 0.82rem; }
   .button-row, .dialog-actions { align-items: stretch; flex-direction: column; }
   .button-row button, .dialog-actions button { width: 100%; }
 }
+
+/* R2 / UI-B */
+.receipts-grid, .contact-layout, .settings-grid { grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr); }
+.preview-shell { margin-top: 1rem; border: 1px solid #d8e1e4; border-radius: 0.7rem; overflow: hidden; background: #f8fafb; }
+.document-preview-image { display: block; max-width: 100%; max-height: 34rem; margin: auto; object-fit: contain; }
+.document-preview-frame { display: block; width: 100%; height: 34rem; border: 0; background: #fff; }
+.ocr-facts { margin-top: 1rem; }
+.report-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 1rem; }
+.owner-table td strong + .subtle { display: block; margin-top: 0.1rem; }
+
+@media (max-width: 900px) {
+  .receipts-grid, .contact-layout, .settings-grid, .report-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .document-preview-frame { height: 26rem; }
+  .candidate-card { align-items: flex-start; }
+}

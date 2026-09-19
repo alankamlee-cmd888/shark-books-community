@@ -1,4 +1,5 @@
 import { UIA_ACTIONS } from "../generated/uia-actions";
+import { UIB_ACTIONS } from "../generated/uib-actions";
 
 export const UIA_BINDINGS = {
   booksCreate: { action: UIA_ACTIONS.booksCreate, command: "books_create" },
@@ -80,4 +81,21 @@ export const UIA_BINDINGS = {
     action: UIA_ACTIONS.bankReconcileFinalise,
     command: "owner_bank_reconcile_finalise",
   },
+} as const;
+
+export const UIB_BINDINGS = {
+  documentSelectRegister: { action: UIB_ACTIONS.documentSelectRegister, command: "owner_document_select_register" },
+  documentVerify: { action: UIB_ACTIONS.documentVerify, command: "owner_document_verify" },
+  documentList: { action: UIB_ACTIONS.documentList, command: "owner_document_list" },
+  documentOpenView: { action: UIB_ACTIONS.documentOpenView, command: "owner_document_open_view" },
+  documentAttach: { action: UIB_ACTIONS.documentAttach, command: "owner_document_attach" },
+  ocrExtract: { action: UIB_ACTIONS.ocrExtract, command: "owner_ocr_extract_receipt" },
+  receiptSuggestBank: { action: UIB_ACTIONS.receiptSuggestBank, command: "owner_receipt_suggest_bank" },
+  receiptConfirmBank: { action: UIB_ACTIONS.receiptConfirmBank, command: "owner_receipt_confirm_bank" },
+  receiptRejectBank: { action: UIB_ACTIONS.receiptRejectBank, command: "owner_receipt_reject_bank" },
+  contactsList: { action: UIB_ACTIONS.contactsList, command: "owner_contacts_list" },
+  contactsSave: { action: UIB_ACTIONS.contactsSave, command: "owner_contacts_save" },
+  reportSummary: { action: UIB_ACTIONS.reportSummary, command: "owner_report_summary" },
+  settingsBooksInfo: { action: UIB_ACTIONS.settingsBooksInfo, command: "owner_settings_books_info" },
+  settingsStorageRoot: { action: UIB_ACTIONS.settingsStorageRoot, command: "owner_settings_storage_root_select" },
 } as const;

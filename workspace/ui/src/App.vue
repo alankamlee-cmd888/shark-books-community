@@ -3,6 +3,10 @@ import { computed, ref } from "vue";
 import HomeScreen from "./screens/HomeScreen.vue";
 import MoneyScreen from "./screens/MoneyScreen.vue";
 import BankScreen from "./screens/BankScreen.vue";
+import ReceiptsScreen from "./screens/ReceiptsScreen.vue";
+import ContactsScreen from "./screens/ContactsScreen.vue";
+import ReportsScreen from "./screens/ReportsScreen.vue";
+import SettingsScreen from "./screens/SettingsScreen.vue";
 import { createBooksSession } from "./lib/session";
 
 const sections = [
@@ -17,10 +21,8 @@ const sections = [
 ] as const;
 
 type Section = (typeof sections)[number];
-
 const activeSection = ref<Section>("Home");
 const session = createBooksSession();
-
 const subtitle = computed(() =>
   session.state.isOpen && session.state.home
     ? session.state.home.companyName
@@ -33,12 +35,8 @@ const subtitle = computed(() =>
     <aside class="sidebar" aria-label="Primary navigation">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">S</span>
-        <div>
-          <strong>Shark Books</strong>
-          <span>Community</span>
-        </div>
+        <div><strong>Shark Books</strong><span>Community</span></div>
       </div>
-
       <nav class="nav-list">
         <button
           v-for="section in sections"
@@ -48,9 +46,7 @@ const subtitle = computed(() =>
           :class="{ active: activeSection === section }"
           :aria-current="activeSection === section ? 'page' : undefined"
           @click="activeSection = section"
-        >
-          {{ section }}
-        </button>
+        >{{ section }}</button>
       </nav>
     </aside>
 
@@ -67,26 +63,13 @@ const subtitle = computed(() =>
       </header>
 
       <HomeScreen v-if="activeSection === 'Home'" :session="session" />
-      <MoneyScreen
-        v-else-if="activeSection === 'Money in'"
-        :session="session"
-        kind="moneyIn"
-      />
-      <MoneyScreen
-        v-else-if="activeSection === 'Money out'"
-        :session="session"
-        kind="moneyOut"
-      />
+      <MoneyScreen v-else-if="activeSection === 'Money in'" :session="session" kind="moneyIn" />
+      <MoneyScreen v-else-if="activeSection === 'Money out'" :session="session" kind="moneyOut" />
       <BankScreen v-else-if="activeSection === 'Bank'" :session="session" />
-
-      <section v-else class="panel coming-soon" aria-live="polite">
-        <p class="eyebrow">UI-B</p>
-        <h2>{{ activeSection }} is not available in UI-A yet</h2>
-        <p>
-          This permanent navigation item is reserved for the next substantial UI-B batch.
-          Shark Books will not simulate an unfinished action through a different backend route.
-        </p>
-      </section>
+      <ReceiptsScreen v-else-if="activeSection === 'Receipts'" :session="session" />
+      <ContactsScreen v-else-if="activeSection === 'Contacts'" :session="session" />
+      <ReportsScreen v-else-if="activeSection === 'Reports'" :session="session" />
+      <SettingsScreen v-else :session="session" />
     </main>
   </div>
 </template>

@@ -18,6 +18,8 @@ export interface BooksSessionState {
   message: string;
   error: string;
   home: OwnerHomeStatus | null;
+  storageRootId: string | null;
+  storageRootLabel: string;
 }
 
 export interface BooksSession {
@@ -27,15 +29,12 @@ export interface BooksSession {
   verify(): Promise<void>;
   refreshHome(): Promise<void>;
   requireContext(): BooksRef;
+  setStorageRoot(rootId: string, label: string): void;
 }
 
 function deriveContext(booksName: string): BooksRef {
   const slug = slugBooksName(booksName);
-  return {
-    fileName: `${slug}.sqlite`,
-    booksId: slug,
-    actor: "owner",
-  };
+  return { fileName: `${slug}.sqlite`, booksId: slug, actor: "owner" };
 }
 
 export function createBooksSession(): BooksSession {
@@ -48,18 +47,27 @@ export function createBooksSession(): BooksSession {
     message: "Choose Create or Open to start.",
     error: "",
     home: null,
+    storageRootId: null,
+    storageRootLabel: "No document storage folder selected for this session.",
   });
 
   function requireContext(): BooksRef {
-    if (!state.context || !state.isOpen) {
-      throw new Error("Open your books before using this feature.");
-    }
+    if (!state.context || !state.isOpen) throw new Error("Open your books before using this feature.");
     return state.context;
   }
 
+  function clearStorageRoot(): void {
+    state.storageRootId = null;
+    state.storageRootLabel = "No document storage folder selected for this session.";
+  }
+
+  function setStorageRoot(rootId: string, label: string): void {
+    state.storageRootId = rootId;
+    state.storageRootLabel = label || "Document storage folder selected for this session.";
+  }
+
   async function refreshHome(): Promise<void> {
-    const books = requireContext();
-    state.home = await homeStatus(books);
+    state.home = await homeStatus(requireContext());
   }
 
   async function create(): Promise<void> {
@@ -72,6 +80,7 @@ export function createBooksSession(): BooksSession {
       await createBooks({ ...context, companyName });
       state.context = context;
       state.isOpen = true;
+      clearStorageRoot();
       await refreshHome();
       state.message = "Books created and opened.";
     } catch (error) {
@@ -79,9 +88,8 @@ export function createBooksSession(): BooksSession {
       state.isOpen = false;
       state.context = null;
       state.home = null;
-    } finally {
-      state.busy = false;
-    }
+      clearStorageRoot();
+    } finally { state.busy = false; }
   }
 
   async function open(): Promise<void> {
@@ -92,6 +100,7 @@ export function createBooksSession(): BooksSession {
       await openBooks(context);
       state.context = context;
       state.isOpen = true;
+      clearStorageRoot();
       await refreshHome();
       state.message = "Books opened.";
     } catch (error) {
@@ -99,9 +108,8 @@ export function createBooksSession(): BooksSession {
       state.isOpen = false;
       state.context = null;
       state.home = null;
-    } finally {
-      state.busy = false;
-    }
+      clearStorageRoot();
+    } finally { state.busy = false; }
   }
 
   async function verify(): Promise<void> {
@@ -111,12 +119,9 @@ export function createBooksSession(): BooksSession {
       await verifyBooks(requireContext());
       await refreshHome();
       state.message = "Books check completed.";
-    } catch (error) {
-      state.error = errorMessage(error);
-    } finally {
-      state.busy = false;
-    }
+    } catch (error) { state.error = errorMessage(error); }
+    finally { state.busy = false; }
   }
 
-  return { state, create, open, verify, refreshHome, requireContext };
+  return { state, create, open, verify, refreshHome, requireContext, setStorageRoot };
 }

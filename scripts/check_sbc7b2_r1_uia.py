@@ -97,11 +97,6 @@ for forbidden_command in [
     "books_trial_balance",
     "owner_bank_import_preview_csv", "owner_bank_import_preview_ofx_qfx",
     "owner_bank_match_review",
-    "owner_document_select_register", "owner_document_verify", "owner_document_open_view",
-    "owner_document_attach", "owner_ocr_extract_receipt",
-    "owner_receipt_suggest_bank", "owner_receipt_confirm_bank", "owner_receipt_reject_bank",
-    "owner_contacts_list", "owner_contacts_save",
-    "owner_settings_books_info", "owner_settings_storage_root_select", "owner_report_summary",
 ]:
     require(f'"{forbidden_command}"' not in tauri, f"UI-A client omits non-UI-A command {forbidden_command}")
 
@@ -151,6 +146,6 @@ security_region = tauri_lib.split(
 require("books_trial_balance" in security_region, "frontend security test explicitly forbids stale trial-balance exposure")
 require("owner_home_status" in security_region, "frontend security test requires current Home surface")
 require("owner_bank_activity_match_review" in security_region, "frontend security test requires persisted match review")
-require("owner_document_select_register" in security_region, "frontend security test retains UI-B negative boundary")
+require("owner_document_select_register" in security_region, "frontend security test admits the governed UI-B document surface")
 
 print("PASS: SBC-7B2 R1/UI-A static architecture and binding contract")

@@ -445,6 +445,20 @@ mod tests {
             "owner_bank_match_confirm",
             "owner_bank_reconcile_preview",
             "owner_bank_reconcile_finalise",
+            "owner_document_select_register",
+            "owner_document_verify",
+            "owner_document_list",
+            "owner_document_open_view",
+            "owner_document_attach",
+            "owner_ocr_extract_receipt",
+            "owner_receipt_suggest_bank",
+            "owner_receipt_confirm_bank",
+            "owner_receipt_reject_bank",
+            "owner_contacts_list",
+            "owner_contacts_save",
+            "owner_settings_books_info",
+            "owner_settings_storage_root_select",
+            "owner_report_summary",
         ] {
             assert!(
                 app_bundle.contains(command),
@@ -459,23 +473,9 @@ mod tests {
             "databasePath",
             "books_trial_balance",
             "production_encryption_required",
-            "ocr_extract_receipt",
             "owner_bank_import_preview_csv",
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
-            "owner_document_select_register",
-            "owner_document_verify",
-            "owner_document_open_view",
-            "owner_document_attach",
-            "owner_ocr_extract_receipt",
-            "owner_receipt_suggest_bank",
-            "owner_receipt_confirm_bank",
-            "owner_receipt_reject_bank",
-            "owner_contacts_list",
-            "owner_contacts_save",
-            "owner_settings_books_info",
-            "owner_settings_storage_root_select",
-            "owner_report_summary",
             "inputPath",
             "modelPath",
             "executablePath",
@@ -487,6 +487,12 @@ mod tests {
             );
         }
 
+        const TAURI_SOURCE: &str = include_str!("../../ui/src/lib/tauri.ts");
+        assert!(
+            !TAURI_SOURCE.contains("\"ocr_extract_receipt\""),
+            "permanent frontend must not invoke the raw OCR shell command"
+        );
+
         let ui_source = [
             include_str!("../../ui/src/App.vue"),
             include_str!("../../ui/src/lib/tauri.ts"),
@@ -494,6 +500,12 @@ mod tests {
             include_str!("../../ui/src/screens/HomeScreen.vue"),
             include_str!("../../ui/src/screens/MoneyScreen.vue"),
             include_str!("../../ui/src/screens/BankScreen.vue"),
+            include_str!("../../ui/src/screens/ReceiptsScreen.vue"),
+            include_str!("../../ui/src/screens/ContactsScreen.vue"),
+            include_str!("../../ui/src/screens/ReportsScreen.vue"),
+            include_str!("../../ui/src/screens/SettingsScreen.vue"),
+            include_str!("../../ui/src/components/DocumentTable.vue"),
+            include_str!("../../ui/src/components/ContactsTable.vue"),
         ]
         .join("\n");
         for forbidden in [
@@ -530,6 +542,15 @@ mod tests {
             serde_json::Value::Bool(true)
         );
         assert!(config["app"]["security"]["csp"].is_object());
+        let csp = &config["app"]["security"]["csp"];
+        assert_eq!(csp["img-src"], "'self' blob:");
+        assert_eq!(csp["frame-src"], "'self' blob:");
+        for directive in ["img-src", "frame-src"] {
+            let value = csp[directive].as_str().expect("CSP directive string");
+            for forbidden in ["http:", "https:", "data:", "file:", "*"] {
+                assert!(!value.contains(forbidden), "{directive} contains forbidden origin {forbidden}");
+            }
+        }
 
         let capability: serde_json::Value =
             serde_json::from_str(CAPABILITY).expect("valid capability");
@@ -560,6 +581,8 @@ mod tests {
             "owner_money_in_save",
             "owner_money_out_preview",
             "owner_money_out_save",
+            "owner_money_records_list",
+            "owner_money_record_detail",
             "owner_bank_import_preview_csv",
             "owner_bank_import_preview_ofx_qfx",
             "owner_bank_match_review",
@@ -567,10 +590,13 @@ mod tests {
             "owner_bank_import_confirm_csv",
             "owner_bank_import_confirm_ofx_qfx",
             "owner_bank_activity_list",
+            "owner_bank_activity_detail",
             "owner_bank_match_confirm",
             "owner_bank_reconcile_finalise",
             "owner_document_select_register",
             "owner_document_verify",
+            "owner_document_list",
+            "owner_document_open_view",
             "owner_document_attach",
             "owner_ocr_extract_receipt",
             "owner_receipt_suggest_bank",

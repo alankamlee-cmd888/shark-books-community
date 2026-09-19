@@ -366,7 +366,7 @@ export interface OwnerBankReconciliationReceipt {
   clearanceState: string;
 }
 
-type UiACommand =
+type UiCommand =
   | "foundation_health"
   | "books_create"
   | "books_open"
@@ -390,10 +390,24 @@ type UiACommand =
   | "owner_bank_activity_match_review"
   | "owner_bank_match_confirm"
   | "owner_bank_reconcile_preview"
-  | "owner_bank_reconcile_finalise";
+  | "owner_bank_reconcile_finalise"
+  | "owner_document_select_register"
+  | "owner_document_verify"
+  | "owner_document_list"
+  | "owner_document_open_view"
+  | "owner_document_attach"
+  | "owner_ocr_extract_receipt"
+  | "owner_receipt_suggest_bank"
+  | "owner_receipt_confirm_bank"
+  | "owner_receipt_reject_bank"
+  | "owner_contacts_list"
+  | "owner_contacts_save"
+  | "owner_report_summary"
+  | "owner_settings_books_info"
+  | "owner_settings_storage_root_select";
 
 function nativeInvoke<T>(
-  command: UiACommand,
+  command: UiCommand,
   args?: Record<string, unknown>,
 ): Promise<T> {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -640,4 +654,127 @@ export function finaliseReconciliation(
       transactionIds,
     },
   });
+}
+
+// -----------------------------------------------------------------------------
+// R2 / UI-B bounded owner bridge
+// -----------------------------------------------------------------------------
+
+export interface OwnerDocumentPage {
+  bridgeVersion: number;
+  rows: OwnerDocumentRead[];
+}
+export type OwnerDocumentIntegrity = "verified" | "sizeMismatch" | "hashMismatch" | "missing";
+export interface OwnerDocumentVerifyOutcome { bridgeVersion: number; documentId: string; integrity: OwnerDocumentIntegrity; }
+export type OwnerDocumentSelectOutcome =
+  | { status: "registered"; document: unknown }
+  | { status: "alreadyRegistered"; document: unknown }
+  | { status: "cancelled" };
+export interface OwnerDocumentAttachOutcome {
+  bridgeVersion: number; documentId: string; recordKind: "moneyIn" | "moneyOut"; recordId: string;
+  attached: boolean; alreadyAttached: boolean; requiresFurtherAutomaticAction: boolean;
+}
+export interface OcrTextCandidate { value: string; confidenceBps: number | null; }
+export interface OcrDateCandidate { value: string; confidenceBps: number | null; }
+export interface OcrAmountCandidate { totalPence: number; confidenceBps: number | null; }
+export interface OcrCurrencyCandidate { code: string; confidenceBps: number | null; }
+export interface ShellOcrExtraction {
+  schemaVersion: number; requestId: string;
+  candidates: {
+    merchantText: OcrTextCandidate | null;
+    documentDate: OcrDateCandidate | null;
+    total: OcrAmountCandidate | null;
+    currency: OcrCurrencyCandidate | null;
+    reference: OcrTextCandidate | null;
+  };
+  warnings: Array<{ code: string; detail: string | null }>;
+}
+export type ShellOcrOutcome =
+  | { status: "completed"; extraction: ShellOcrExtraction }
+  | { status: "unavailable"; reason: string }
+  | { status: "failed"; kind: string };
+
+export interface OwnerReceiptCandidateView {
+  candidateId: string; postedDate: string; amountPence: number; description: string;
+  payee: string | null; reference: string | null; level: string; score: number;
+  reasons: string[]; requiresConfirmation: boolean;
+}
+export type OwnerReceiptSuggestionOutcome =
+  | { status: "ready"; bridgeVersion: number; suggestionId: string; documentId: string;
+      candidates: OwnerReceiptCandidateView[]; recommendedCandidateId: string | null;
+      ambiguousTop: boolean; requiresConfirmation: boolean }
+  | { status: "ocrUnavailable"; reason: string }
+  | { status: "ocrFailed"; kind: string };
+export interface OwnerReceiptDecisionReceipt {
+  bridgeVersion: number; suggestionId: string; documentId: string; decision: string;
+  recorded: boolean; alreadyRecorded: boolean; requiresFurtherAutomaticAction: boolean;
+}
+
+export type OwnerContactKind = "customer" | "supplier";
+export interface OwnerContactView {
+  bridgeVersion: number; contactId: string; kind: OwnerContactKind; displayName: string;
+  createdBy: string; createdAt: string; updatedBy: string; updatedAt: string;
+}
+export interface OwnerContactsListOutcome { bridgeVersion: number; contacts: OwnerContactView[]; }
+export type OwnerContactSaveOutcome =
+  | { status: "created"; contact: OwnerContactView }
+  | { status: "updated"; contact: OwnerContactView }
+  | { status: "alreadyCurrent"; contact: OwnerContactView };
+export interface OwnerSettingsBooksInfo {
+  bridgeVersion: number; booksId: string; companyName: string; databaseSchemaVersion: number;
+  expectedDatabaseSchemaVersion: number; booksFormatVersion: number; applicationSchemaVersion: number;
+  facadeApiVersion: number; foundationVersion: string; shellVersion: string; migrationRequired: boolean;
+  productionEncryptionRequired: boolean; encryptedNativeRequired: boolean; encryptedNativeSessionActive: boolean;
+  backupBeforeExistingOpenRequired: boolean;
+}
+export type OwnerStorageRootSelectOutcome =
+  | { status: "registered"; bridgeVersion: number; storageRootId: string; label: string; scope: "deviceSession" }
+  | { status: "cancelled"; bridgeVersion: number; scope: "deviceSession" };
+export interface OwnerReportSummary {
+  bridgeVersion: number; moneyInMinor: number; moneyOutMinor: number;
+  businessBankBalanceMinor: number | null; cashBalanceMinor: number | null;
+  booksBalanced: boolean; currency: "GBP";
+}
+
+export function listDocuments(books: BooksRef, limit = 200, offset = 0): Promise<OwnerDocumentPage> {
+  return nativeInvoke("owner_document_list", { request: { books, limit, offset } });
+}
+export function selectAndRegisterDocument(books: BooksRef, storageRootId: string): Promise<OwnerDocumentSelectOutcome> {
+  return nativeInvoke("owner_document_select_register", { request: { books, storageRootId } });
+}
+export function verifyDocument(books: BooksRef, documentId: string): Promise<OwnerDocumentVerifyOutcome> {
+  return nativeInvoke("owner_document_verify", { request: { books, documentId } });
+}
+export function openDocumentView(books: BooksRef, documentId: string): Promise<ArrayBuffer> {
+  return nativeInvoke<ArrayBuffer>("owner_document_open_view", { request: { books, documentId } });
+}
+export function attachDocument(books: BooksRef, documentId: string, recordKind: "moneyIn" | "moneyOut", recordId: string): Promise<OwnerDocumentAttachOutcome> {
+  return nativeInvoke("owner_document_attach", { request: { books, documentId, recordKind, recordId } });
+}
+export function ocrExtractReceipt(books: BooksRef, requestId: string, documentId: string): Promise<ShellOcrOutcome> {
+  return nativeInvoke("owner_ocr_extract_receipt", { request: { books, requestId, documentId } });
+}
+export function suggestReceiptBank(books: BooksRef, requestId: string, documentId: string): Promise<OwnerReceiptSuggestionOutcome> {
+  return nativeInvoke("owner_receipt_suggest_bank", { request: { books, requestId, documentId } });
+}
+export function confirmReceiptBank(books: BooksRef, suggestionId: string, candidateId: string): Promise<OwnerReceiptDecisionReceipt> {
+  return nativeInvoke("owner_receipt_confirm_bank", { request: { books, suggestionId, candidateId } });
+}
+export function rejectReceiptBank(books: BooksRef, suggestionId: string): Promise<OwnerReceiptDecisionReceipt> {
+  return nativeInvoke("owner_receipt_reject_bank", { request: { books, suggestionId } });
+}
+export function listContacts(books: BooksRef, kind?: OwnerContactKind, limit = 200): Promise<OwnerContactsListOutcome> {
+  return nativeInvoke("owner_contacts_list", { request: { books, kind, limit } });
+}
+export function saveContact(books: BooksRef, contactId: string, kind: OwnerContactKind, displayName: string): Promise<OwnerContactSaveOutcome> {
+  return nativeInvoke("owner_contacts_save", { request: { books, contactId, kind, displayName } });
+}
+export function booksInfo(books: BooksRef): Promise<OwnerSettingsBooksInfo> {
+  return nativeInvoke("owner_settings_books_info", { request: { books } });
+}
+export function selectStorageRoot(books: BooksRef): Promise<OwnerStorageRootSelectOutcome> {
+  return nativeInvoke("owner_settings_storage_root_select", { request: { books } });
+}
+export function reportSummary(books: BooksRef): Promise<OwnerReportSummary> {
+  return nativeInvoke("owner_report_summary", { request: { books } });
 }
