@@ -28,6 +28,12 @@ const subtitle = computed(() =>
     ? session.state.home.companyName
     : "Local owner workspace",
 );
+
+function navigate(section: string) {
+  if ((sections as readonly string[]).includes(section)) {
+    activeSection.value = section as Section;
+  }
+}
 </script>
 
 <template>
@@ -62,7 +68,11 @@ const subtitle = computed(() =>
         </span>
       </header>
 
-      <HomeScreen v-if="activeSection === 'Home'" :session="session" />
+      <HomeScreen
+        v-if="activeSection === 'Home'"
+        :session="session"
+        @navigate="navigate"
+      />
       <MoneyScreen v-else-if="activeSection === 'Money in'" :session="session" kind="moneyIn" />
       <MoneyScreen v-else-if="activeSection === 'Money out'" :session="session" kind="moneyOut" />
       <BankScreen v-else-if="activeSection === 'Bank'" :session="session" />

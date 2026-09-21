@@ -10,6 +10,7 @@ commands.allow = [
   "books_trial_balance",
   "ocr_extract_receipt",
   "owner_home_status",
+  "owner_command_text_resolve",
   "owner_money_in_preview",
   "owner_money_in_save",
   "owner_money_out_preview",

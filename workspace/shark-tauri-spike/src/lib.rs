@@ -10,6 +10,7 @@ mod owner_bank_mutation;
 mod owner_bank_review;
 mod owner_documents_ocr;
 mod owner_mutation_audit;
+mod owner_command_text;
 mod owner_read_views;
 mod owner_supporting_data;
 
@@ -248,6 +249,7 @@ pub fn run() {
             books_trial_balance,
             ocr_native::ocr_extract_receipt,
             owner_app::owner_home_status,
+            owner_command_text::owner_command_text_resolve,
             owner_app::owner_money_in_preview,
             owner_app::owner_money_in_save,
             owner_app::owner_money_out_preview,
@@ -459,6 +461,7 @@ mod tests {
             "owner_settings_books_info",
             "owner_settings_storage_root_select",
             "owner_report_summary",
+            "owner_command_text_resolve",
         ] {
             assert!(
                 app_bundle.contains(command),
@@ -504,6 +507,9 @@ mod tests {
             include_str!("../../ui/src/screens/ContactsScreen.vue"),
             include_str!("../../ui/src/screens/ReportsScreen.vue"),
             include_str!("../../ui/src/screens/SettingsScreen.vue"),
+            include_str!("../../ui/src/components/CommandPanel.vue"),
+            include_str!("../../ui/src/components/AttentionPanel.vue"),
+            include_str!("../../ui/src/lib/command-routes.ts"),
             include_str!("../../ui/src/components/DocumentTable.vue"),
             include_str!("../../ui/src/components/ContactsTable.vue"),
         ]
@@ -610,6 +616,7 @@ mod tests {
             "owner_settings_books_info",
             "owner_settings_storage_root_select",
             "owner_report_summary",
+            "owner_command_text_resolve",
         ] {
             assert!(
                 BUILD_RS.contains(command),

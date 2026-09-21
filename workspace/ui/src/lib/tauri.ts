@@ -366,8 +366,70 @@ export interface OwnerBankReconciliationReceipt {
   clearanceState: string;
 }
 
+export interface CommandFact {
+  slotId: string;
+  value: string;
+}
+
+export interface OwnerCommandTextRequest {
+  text: string;
+  booksReference: string | null;
+  actor: string | null;
+  candidateActionId: string | null;
+  facts: CommandFact[];
+}
+
+export interface OwnerCommandChoice {
+  actionId: string;
+  manualLabel: string;
+  family: string;
+  confirmationClass: string;
+  backendState: string;
+}
+
+export interface OwnerCommandPrompt {
+  slotId: string;
+  label: string;
+  choices: string[];
+}
+
+export interface OwnerCommandAttention {
+  attentionId: string;
+  reasonCode: string;
+  title: string;
+  summary: string;
+  actionIds: string[];
+  allowedNextActionIds: string[];
+  missingOwnerSlots: string[];
+  missingContextSlots: string[];
+}
+
+export interface OwnerCommandResolvedFact {
+  slotId: string;
+  value: string;
+  source: string;
+}
+
+export interface OwnerCommandResolution {
+  state: "KNOWN" | "UNKNOWN" | "AMBIGUOUS" | "CONFLICTING";
+  actionId: string | null;
+  execution: "EXECUTABLE" | "LOCKED" | "INTERNAL_ONLY" | "NOT_AUTHORISED";
+  resolvedFacts: OwnerCommandResolvedFact[];
+  missingOwnerSlots: string[];
+  missingContextSlots: string[];
+  attention: OwnerCommandAttention | null;
+}
+
+export interface OwnerCommandTextResponse {
+  candidateActionIds: string[];
+  choices: OwnerCommandChoice[];
+  resolution: OwnerCommandResolution;
+  prompt: OwnerCommandPrompt | null;
+}
+
 type UiCommand =
   | "foundation_health"
+  | "owner_command_text_resolve"
   | "books_create"
   | "books_open"
   | "books_verify"
@@ -419,6 +481,12 @@ function nativeInvoke<T>(
 
 export function foundationHealth(): Promise<string> {
   return nativeInvoke<string>("foundation_health");
+}
+
+export function resolveCommandText(
+  request: OwnerCommandTextRequest,
+): Promise<OwnerCommandTextResponse> {
+  return nativeInvoke("owner_command_text_resolve", { request });
 }
 
 export function createBooks(request: CreateBooksRequest): Promise<unknown> {

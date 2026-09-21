@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import AttentionPanel from "../components/AttentionPanel.vue";
+import CommandPanel from "../components/CommandPanel.vue";
 import { UIA_BINDINGS } from "../lib/action-bindings";
+import type { CommandSection } from "../lib/command-routes";
 import { errorMessage } from "../lib/format";
 import type { BooksSession } from "../lib/session";
-import { foundationHealth, listBankActivity, type OwnerBankActivityRow } from "../lib/tauri";
+import {
+  foundationHealth,
+  listBankActivity,
+  type OwnerBankActivityRow,
+  type OwnerCommandAttention,
+} from "../lib/tauri";
 
 const props = defineProps<{ session: BooksSession }>();
+const emit = defineEmits<{ navigate: [section: CommandSection] }>();
 
 const bridgeStatus = ref("Checking native bridge…");
 const bankRows = ref<OwnerBankActivityRow[]>([]);
 const attentionError = ref("");
+const commandAttention = ref<OwnerCommandAttention | null>(null);
 
 async function loadAttention() {
   attentionError.value = "";
@@ -109,19 +118,11 @@ watch(
       <article class="panel" aria-labelledby="assistant-home-heading">
         <p class="eyebrow">Assistant home</p>
         <h2 id="assistant-home-heading">Ask Shark Books</h2>
-        <label>
-          <span>Command</span>
-          <input
-            value=""
-            disabled
-            placeholder="Typed command routing arrives in FT4"
-            aria-describedby="command-help"
-          />
-        </label>
-        <p id="command-help" class="subtle">
-          UI-A establishes the Assistant Home layout only. It does not pretend a conversational
-          or speech runtime exists.
-        </p>
+        <CommandPanel
+          :session="session"
+          @navigate="emit('navigate', $event)"
+          @attention="commandAttention = $event"
+        />
         <p class="runtime-note">{{ bridgeStatus }}</p>
       </article>
     </section>
@@ -149,6 +150,7 @@ watch(
       :home="session.state.home"
       :bank-rows="bankRows"
       :books-open="session.state.isOpen"
+      :command-attention="commandAttention"
     />
   </div>
 </template>

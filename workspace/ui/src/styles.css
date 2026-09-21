@@ -325,3 +325,53 @@ button.compact { padding: 0.5rem 0.72rem; font-size: 0.82rem; }
   .document-preview-frame { height: 26rem; }
   .candidate-card { align-items: flex-start; }
 }
+
+.command-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.command-entry,
+.command-clarification {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.command-entry {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.command-entry label,
+.command-clarification label {
+  min-width: 0;
+}
+
+.command-result {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.command-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.command-choices {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.command-choices .secondary {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+@media (max-width: 720px) {
+  .command-entry {
+    grid-template-columns: 1fr;
+  }
+}
