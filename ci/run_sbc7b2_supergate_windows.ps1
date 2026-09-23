@@ -139,21 +139,180 @@ try {
     }
 
     # The eight Windows B3C packaged-runtime tests require the standalone B3C harness
-    # to rebuild real/fake OCR sidecars and receipt fixtures. FT1/FT2 does not change
-    # those runtime paths, so prove that boundary is unchanged before excluding only
-    # those eight already-proven packaged-runtime cases from this inherited SG6 sweep.
-    $B3cInvariantPaths = @(
+    # to rebuild real/fake OCR sidecars and receipt fixtures. Integrated FT3/FT4
+    # legitimately extends the shared Tauri command-registration manifests, so prove
+    # the actual OCR runtime boundary is unchanged and separately prove the shared
+    # command manifests preserve the inherited B3C command with only the exact
+    # governed FT3/FT4 command additions.
+    $B3cRuntimeInvariantPaths = @(
         'workspace/shark-tauri-spike/Cargo.toml',
-        'workspace/shark-tauri-spike/build.rs',
         'workspace/shark-tauri-spike/src/ocr_native.rs',
-        'workspace/shark-tauri-spike/permissions/shark-shell.toml',
         'product/ocr-runtime/windows/shark_ocr_single.py',
         'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
         'scripts/check_sbc6b_b3c_native_gate.py'
     )
-    $B3cChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $B3cInvariantPaths)
-    if ($B3cChanged.Count -ne 0) {
-        throw "B3C packaged-runtime exclusion is invalid because inherited OCR paths changed: $($B3cChanged -join ', ')"
+    $B3cRuntimeChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $B3cRuntimeInvariantPaths)
+    if ($B3cRuntimeChanged.Count -ne 0) {
+        throw "B3C packaged-runtime exclusion is invalid because OCR runtime paths changed: $($B3cRuntimeChanged -join ', ')"
+    }
+
+    function Get-BoundedManifestCommands {
+        param([string]$Text)
+        $commands = @()
+        foreach ($line in ($Text -split "\r?\n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^"([A-Za-z0-9_]+)",?
+    Run-Logged 'sg6_tauri' {
+        rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked --jobs 1 -- `
+            --test-threads=1 `
+            --skip ocr_native::tests::windows_malformed_and_wrong_schema_fail_closed `
+            --skip ocr_native::tests::windows_missing_sidecar_is_unavailable `
+            --skip ocr_native::tests::windows_nonzero_sidecar_maps_to_typed_engine_failure `
+            --skip ocr_native::tests::windows_real_packaged_sidecar_returns_b2_compatible_facts `
+            --skip ocr_native::tests::windows_stdout_and_stderr_limits_fail_closed `
+            --skip ocr_native::tests::windows_timeout_is_owned_by_rust_and_child_is_terminated `
+            --skip ocr_native::tests::windows_wrong_hash_is_rejected_by_verified_sidecar_before_ocr `
+            --skip ocr_native::tests::windows_wrong_length_fails_before_sidecar_execution
+    }
+    Write-GateResult 'SG6_REGRESSIONS' 'PASS' 'Product core, Foundation and inherited Tauri owner-bridge regressions pass; eight unchanged B3C packaged-runtime-only Windows tests remain covered by their dedicated prior harness.'
+
+    # SG7 — Windows platform compile/check
+    Run-Logged 'sg7_workspace_check' {
+        rustup run $Toolchain cargo check --manifest-path (Join-Path $Workspace 'Cargo.toml') --workspace --locked --jobs 1
+    }
+    Write-GateResult 'SG7_PLATFORM_COMPILE' 'PASS' 'Locked Windows workspace compile/check passes.'
+
+    # SG8 — final integrity
+    $HeadEnd = (& git -C $Repo rev-parse HEAD).Trim()
+    if ($HeadEnd -ne $script:Head -or $HeadEnd -ne $ExpectedHead) { throw 'Candidate SHA moved during Windows Super-Gate.' }
+    $LockShaEnd = (Get-FileHash -Algorithm SHA256 $LockPath).Hash.ToLowerInvariant()
+    if ($LockShaEnd -ne $LockShaStart) { throw 'Cargo.lock changed during Windows Super-Gate.' }
+    $LockBlobEnd = (& git -C $Repo hash-object $LockPath).Trim()
+    if ($LockBlobEnd -ne $LockBlobExpected) { throw 'Cargo.lock no longer equals candidate blob at exit.' }
+    $Status = ((& git -C $Repo status --porcelain) -join "`n").Trim()
+    if ($Status) { throw "Repository dirty after Windows Super-Gate: $Status" }
+    Write-GateResult 'SG8_FINAL_INTEGRITY' 'PASS' 'Candidate SHA, Cargo.lock and repository cleanliness preserved through proof.'
+
+    $LockRecord = [ordered]@{
+        workspace_cargo_lock_sha256 = $LockShaEnd
+        workspace_cargo_lock_git_blob = $LockBlobExpected
+    }
+    $LockRecord | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'LOCK_HASHES.json')
+    [ordered]@{ rust_toolchain = $Toolchain; platform = 'windows'; cargo_target_dir = $CargoTarget } |
+        ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'TOOLCHAIN.json')
+
+    $Summary = [ordered]@{
+        schema = 'sbc7b2-ft3-ft4-supergate-windows-v1'
+        overall = 'PASS'
+        candidate_sha = $script:Head
+        expected_sha = $ExpectedHead
+        base_sha = $Base
+        mandatory_gates = @('SG0_PREFLIGHT','SG1_ACTION_STACK','SG2_CONTROLLER','SG3_UI_A','SG4_UI_B','SG5_COMMAND_TEXT','SG6_REGRESSIONS','SG7_PLATFORM_COMPILE','SG8_FINAL_INTEGRITY')
+        cargo_lock_sha256 = $LockShaEnd
+        rust_toolchain = $Toolchain
+    }
+    $Summary | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'SUMMARY.json')
+    @(
+        'SBC-7B2 FT3/FT4 Windows Super-Gate',
+        'Overall: PASS',
+        "Candidate: $script:Head",
+        "Cargo.lock SHA-256: $LockShaEnd",
+        'SG3/SG4/SG5: MANDATORY_INTEGRATED_CANDIDATE'
+    ) | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'SUMMARY.txt')
+
+    if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+    Compress-Archive -Path (Join-Path $ResultDir '*') -DestinationPath $ZipPath -Force
+    Write-Host "[PASS] SBC-7B2 FT3/FT4 Windows Super-Gate evidence: $ZipPath"
+}
+finally {
+    Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $ProofBooks -Recurse -Force -ErrorAction SilentlyContinue
+    if ($HadProofKey) {
+        $env:SHARK_SBC1D_PROOF_KEY = $PreviousProofKey
+    } else {
+        Remove-Item Env:SHARK_SBC1D_PROOF_KEY -ErrorAction SilentlyContinue
+    }
+    if ($HadProofBooks) {
+        $env:SHARK_SBC1D_BOOKS_DIR = $PreviousProofBooks
+    } else {
+        Remove-Item Env:SHARK_SBC1D_BOOKS_DIR -ErrorAction SilentlyContinue
+    }
+}
+) {
+                $commands += $Matches[1]
+            }
+        }
+        return @($commands)
+    }
+
+    $ExpectedIntegratedCommandAdditions = @(
+        'owner_bank_activity_detail',
+        'owner_bank_activity_match_review',
+        'owner_bank_import_review_csv',
+        'owner_bank_import_review_ofx_qfx',
+        'owner_command_text_resolve',
+        'owner_document_list',
+        'owner_document_open_view',
+        'owner_money_record_detail',
+        'owner_money_records_list'
+    ) | Sort-Object
+
+    $BuildPath = Join-Path $Repo 'workspace\shark-tauri-spike\build.rs'
+    $PermissionPath = Join-Path $Repo 'workspace\shark-tauri-spike\permissions\shark-shell.toml'
+    $BaseBuildText = ((& git -C $Repo show "$($Base):workspace/shark-tauri-spike/build.rs") -join "`n")
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read protected-base Tauri build manifest.' }
+    $BasePermissionText = ((& git -C $Repo show "$($Base):workspace/shark-tauri-spike/permissions/shark-shell.toml") -join "`n")
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read protected-base Tauri permission manifest.' }
+    $CurrentBuildText = Get-Content -LiteralPath $BuildPath -Raw
+    $CurrentPermissionText = Get-Content -LiteralPath $PermissionPath -Raw
+
+    foreach ($anchor in @(
+        'AUTOGENERATED_PERMISSIONS_DIR',
+        'fs::remove_dir_all(autogenerated)',
+        'tauri_build::try_build',
+        'tauri_build::AppManifest::new().commands(&[',
+        'failed to build Shark Books Community Tauri manifest'
+    )) {
+        if (-not $CurrentBuildText.Contains($anchor)) {
+            throw "Integrated Tauri build manifest lost required inherited scaffold: $anchor"
+        }
+    }
+    foreach ($anchor in @(
+        'identifier = "shark-shell"',
+        'commands.allow = ['
+    )) {
+        if (-not $CurrentPermissionText.Contains($anchor)) {
+            throw "Integrated Tauri permission manifest lost required inherited scaffold: $anchor"
+        }
+    }
+
+    $BaseBuildCommands = @(Get-BoundedManifestCommands $BaseBuildText)
+    $BasePermissionCommands = @(Get-BoundedManifestCommands $BasePermissionText)
+    $CurrentBuildCommands = @(Get-BoundedManifestCommands $CurrentBuildText)
+    $CurrentPermissionCommands = @(Get-BoundedManifestCommands $CurrentPermissionText)
+
+    if (@(Compare-Object ($BaseBuildCommands | Sort-Object -Unique) ($BasePermissionCommands | Sort-Object -Unique)).Count -ne 0) {
+        throw 'Protected-base Tauri build/permission command sets disagree.'
+    }
+    if (@(Compare-Object ($CurrentBuildCommands | Sort-Object -Unique) ($CurrentPermissionCommands | Sort-Object -Unique)).Count -ne 0) {
+        throw 'Integrated Tauri build/permission command sets disagree.'
+    }
+
+    foreach ($commands in @($BaseBuildCommands, $BasePermissionCommands, $CurrentBuildCommands, $CurrentPermissionCommands)) {
+        if (@($commands | Where-Object { $_ -eq 'ocr_extract_receipt' }).Count -ne 1) {
+            throw 'B3C OCR command registration is not preserved exactly once in every shared manifest.'
+        }
+    }
+
+    $BaseSet = @($BaseBuildCommands | Sort-Object -Unique)
+    $CurrentSet = @($CurrentBuildCommands | Sort-Object -Unique)
+    $RemovedCommands = @($BaseSet | Where-Object { $_ -notin $CurrentSet })
+    $AddedCommands = @($CurrentSet | Where-Object { $_ -notin $BaseSet } | Sort-Object)
+    if ($RemovedCommands.Count -ne 0) {
+        throw "Integrated Tauri manifests removed inherited commands: $($RemovedCommands -join ', ')"
+    }
+    if (@(Compare-Object $ExpectedIntegratedCommandAdditions $AddedCommands).Count -ne 0) {
+        throw "Integrated Tauri manifest additions differ from the exact governed FT3/FT4 set. Observed: $($AddedCommands -join ', ')"
     }
 
     Run-Logged 'sg6_tauri' {
