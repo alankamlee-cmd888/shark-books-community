@@ -12,12 +12,14 @@ use serde::{Deserialize, Serialize};
 use shark_books_core as core;
 use shark_foundation::{Books, EntryView, FoundationError, TransactionView};
 
-use super::{open_books_impl, OpenBooksRequest};
+use super::{OpenBooksRequest, open_books_impl};
 
 const OWNER_BANK_BRIDGE_VERSION: u32 = 1;
 const BANK_ACCOUNT_CODE: &str = "1000";
 const MAX_STATEMENT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_MATCH_CANDIDATES: usize = 100;
+const OWNER_DISCOVERY_PAGE: i64 = 200;
+const MAX_DISCOVERY_RECORDS_PER_KIND: i64 = 1_000;
 const MAX_RECONCILIATION_ROWS: usize = 1_000;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -97,7 +99,9 @@ impl From<OwnerCsvDateFormat> for core::bank_import::CsvDateFormat {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) enum OwnerCsvAmountMapping {
-    Signed { amount_header: String },
+    Signed {
+        amount_header: String,
+    },
     DebitCredit {
         debit_header: String,
         credit_header: String,
@@ -150,7 +154,8 @@ impl OwnerCsvProfile {
             ));
         }
         core::bank_import::CsvMappingProfile::new(
-            core::RecordId::new(self.id.clone()).map_err(|e| OwnerBankError::invalid(e.to_string()))?,
+            core::RecordId::new(self.id.clone())
+                .map_err(|e| OwnerBankError::invalid(e.to_string()))?,
             self.name.clone(),
             delimiter,
             self.date_header.clone(),
@@ -236,7 +241,9 @@ fn require_statement_text(text: &str) -> OwnerBankResult<()> {
         return Err(OwnerBankError::invalid("statement text must not be empty"));
     }
     if text.len() > MAX_STATEMENT_BYTES {
-        return Err(OwnerBankError::invalid("statement text exceeds the bounded 10 MiB limit"));
+        return Err(OwnerBankError::invalid(
+            "statement text exceeds the bounded 10 MiB limit",
+        ));
     }
     Ok(())
 }
@@ -285,7 +292,9 @@ fn preview_view(preview: core::bank_import::BankImportPreview) -> OwnerBankImpor
     }
 }
 
-fn preview_csv(request: &OwnerCsvPreviewRequest) -> OwnerBankResult<core::bank_import::BankImportPreview> {
+fn preview_csv(
+    request: &OwnerCsvPreviewRequest,
+) -> OwnerBankResult<core::bank_import::BankImportPreview> {
     require_statement_text(&request.statement_text)?;
     let profile = request.profile.to_core()?;
     core::bank_import::preview_csv(
@@ -296,7 +305,9 @@ fn preview_csv(request: &OwnerCsvPreviewRequest) -> OwnerBankResult<core::bank_i
     .map_err(OwnerBankError::bank)
 }
 
-fn preview_ofx(request: &OwnerOfxPreviewRequest) -> OwnerBankResult<core::bank_import::BankImportPreview> {
+fn preview_ofx(
+    request: &OwnerOfxPreviewRequest,
+) -> OwnerBankResult<core::bank_import::BankImportPreview> {
     require_statement_text(&request.statement_text)?;
     core::bank_import::preview_ofx_or_qfx(
         &request.statement_text,
@@ -318,6 +329,164 @@ pub(crate) fn owner_bank_import_preview_ofx_qfx(
     request: OwnerOfxPreviewRequest,
 ) -> OwnerBankResult<OwnerBankImportPreview> {
     preview_ofx(&request).map(preview_view)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OwnerCsvImportReviewRequest {
+    books: OwnerBankBooksRef,
+    source_account_id: String,
+    statement_text: String,
+    profile: OwnerCsvProfile,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OwnerOfxImportReviewRequest {
+    books: OwnerBankBooksRef,
+    source_account_id: String,
+    statement_text: String,
+    format: OwnerOfxFormat,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnerBankDuplicateReview {
+    line_ref: String,
+    outcome: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnerBankImportReview {
+    bridge_version: u32,
+    statement_sha256: String,
+    can_confirm: bool,
+    requires_explicit_confirmation: bool,
+    lines: Vec<OwnerBankLineView>,
+    errors: Vec<OwnerBankPreviewError>,
+    duplicate_reviews: Vec<OwnerBankDuplicateReview>,
+    duplicate_count: usize,
+}
+
+fn source_kind_name(value: core::SourceKind) -> &'static str {
+    match value {
+        core::SourceKind::Manual => "manual",
+        core::SourceKind::Csv => "csv",
+        core::SourceKind::Ofx => "ofx",
+        core::SourceKind::Qfx => "qfx",
+        core::SourceKind::Document => "document",
+        core::SourceKind::Adapter => "adapter",
+    }
+}
+
+fn activity_write(line: &core::bank_import::BankLine) -> shark_foundation::BankActivityWrite {
+    shark_foundation::BankActivityWrite {
+        source_account_id: line.source_account_id().as_str().to_string(),
+        institution_account_id: line.institution_account_id().map(str::to_string),
+        source_format: source_format_name(line.source_format()).to_string(),
+        source_file_sha256: line.source_file_sha256().to_string(),
+        source_locator: line.source_locator().to_string(),
+        posted_date: line.posted_date().iso(),
+        value_date: line.value_date().map(core::Date::iso),
+        signed_amount_minor: line.signed_amount_minor(),
+        currency_code: line.currency_code().to_string(),
+        description: line.description().to_string(),
+        payee: line.payee().map(str::to_string),
+        reference: line.reference().map(str::to_string),
+        external_transaction_id: line.external_transaction_id().map(str::to_string),
+        raw_record_sha256: line.raw_record_sha256().to_string(),
+        strong_identity_key: line.strong_identity_key(),
+        provenance_kind: source_kind_name(line.provenance().kind()).to_string(),
+        provenance_source_reference: line.provenance().source_reference().map(str::to_string),
+        provenance_fingerprint: line.provenance().fingerprint().map(str::to_string),
+        provenance_label: line.provenance().label().map(str::to_string),
+    }
+}
+
+fn duplicate_outcome_name(value: shark_foundation::BankActivityReviewKind) -> &'static str {
+    match value {
+        shark_foundation::BankActivityReviewKind::New => "new",
+        shark_foundation::BankActivityReviewKind::StrongDuplicate => "strongDuplicate",
+        shark_foundation::BankActivityReviewKind::FileExactDuplicate => "fileExactDuplicate",
+    }
+}
+
+fn import_review(
+    books: &Books,
+    statement_text: &str,
+    preview: core::bank_import::BankImportPreview,
+) -> OwnerBankResult<OwnerBankImportReview> {
+    let can_parse_confirm =
+        preview.can_commit() && !preview.lines().is_empty() && preview.errors().is_empty();
+    let duplicate_reviews = if can_parse_confirm {
+        let writes = preview
+            .lines()
+            .iter()
+            .map(activity_write)
+            .collect::<Vec<_>>();
+        books
+            .review_bank_activity_batch(&writes)
+            .map_err(OwnerBankError::foundation)?
+            .into_iter()
+            .map(|outcome| OwnerBankDuplicateReview {
+                line_ref: outcome.source_locator,
+                outcome: duplicate_outcome_name(outcome.kind),
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let duplicate_count = duplicate_reviews
+        .iter()
+        .filter(|row| row.outcome != "new")
+        .count();
+
+    Ok(OwnerBankImportReview {
+        bridge_version: OWNER_BANK_BRIDGE_VERSION,
+        statement_sha256: core::bank_import::sha256_hex(statement_text.as_bytes()),
+        can_confirm: can_parse_confirm,
+        requires_explicit_confirmation: can_parse_confirm,
+        lines: preview.lines().iter().map(line_view).collect(),
+        errors: preview
+            .errors()
+            .iter()
+            .map(|error| OwnerBankPreviewError {
+                line_ref: error.locator().to_string(),
+                message: error.message().to_string(),
+            })
+            .collect(),
+        duplicate_reviews,
+        duplicate_count,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn owner_bank_import_review_csv(
+    request: OwnerCsvImportReviewRequest,
+) -> OwnerBankResult<OwnerBankImportReview> {
+    let preview_request = OwnerCsvPreviewRequest {
+        source_account_id: request.source_account_id,
+        statement_text: request.statement_text.clone(),
+        profile: request.profile,
+    };
+    let preview = preview_csv(&preview_request)?;
+    let books = request.books.open()?;
+    import_review(&books, &request.statement_text, preview)
+}
+
+#[tauri::command]
+pub(crate) fn owner_bank_import_review_ofx_qfx(
+    request: OwnerOfxImportReviewRequest,
+) -> OwnerBankResult<OwnerBankImportReview> {
+    let preview_request = OwnerOfxPreviewRequest {
+        source_account_id: request.source_account_id,
+        statement_text: request.statement_text.clone(),
+        format: request.format,
+    };
+    let preview = preview_ofx(&preview_request)?;
+    let books = request.books.open()?;
+    import_review(&books, &request.statement_text, preview)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -372,7 +541,11 @@ impl OwnerStatementSelection {
             .iter()
             .find(|line| line.source_locator() == line_ref)
             .cloned()
-            .ok_or_else(|| OwnerBankError::invalid("selected bank line is not present in the deterministic preview"))
+            .ok_or_else(|| {
+                OwnerBankError::invalid(
+                    "selected bank line is not present in the deterministic preview",
+                )
+            })
     }
 }
 
@@ -451,7 +624,9 @@ fn parse_date(value: &str) -> OwnerBankResult<core::Date> {
         .and_then(|part| part.parse::<u8>().ok())
         .ok_or_else(|| OwnerBankError::invalid("transaction date must be YYYY-MM-DD"))?;
     if parts.next().is_some() || value.len() != 10 {
-        return Err(OwnerBankError::invalid("transaction date must be YYYY-MM-DD"));
+        return Err(OwnerBankError::invalid(
+            "transaction date must be YYYY-MM-DD",
+        ));
     }
     core::Date::new(year, month, day).map_err(|e| OwnerBankError::invalid(e.to_string()))
 }
@@ -475,14 +650,16 @@ fn clearance_state(status: &str) -> OwnerBankResult<core::matching::ClearanceSta
     }
 }
 
-fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<ResolvedBankEntry> {
+fn optional_bank_entry(
+    transaction: &TransactionView,
+) -> OwnerBankResult<Option<ResolvedBankEntry>> {
     let mut matching = transaction
         .entries
         .iter()
         .filter(|entry| entry.account_code == BANK_ACCOUNT_CODE);
-    let entry = matching
-        .next()
-        .ok_or_else(|| OwnerBankError::invalid("candidate transaction has no Business Bank entry"))?;
+    let Some(entry) = matching.next() else {
+        return Ok(None);
+    };
     if matching.next().is_some() {
         return Err(OwnerBankError::invalid(
             "candidate transaction has more than one Business Bank entry",
@@ -497,15 +674,24 @@ fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<Resolve
         other => {
             return Err(OwnerBankError::invalid(format!(
                 "unsupported bank-entry direction '{other}'"
-            )))
+            )));
         }
     };
-    Ok(ResolvedBankEntry {
+    Ok(Some(ResolvedBankEntry {
         transaction_id: transaction.id,
         entry_id: entry.id,
         signed_amount_pence,
         state: clearance_state(&entry.status)?,
-    })
+    }))
+}
+
+fn resolved_bank_entry(transaction: &TransactionView) -> OwnerBankResult<ResolvedBankEntry> {
+    optional_bank_entry(transaction)?
+        .ok_or_else(|| OwnerBankError::invalid("candidate transaction has no Business Bank entry"))
+}
+
+fn bank_entry_is_discoverable(bank: &ResolvedBankEntry, already_matched: bool) -> bool {
+    !already_matched && bank.state != core::matching::ClearanceState::Reconciled
 }
 
 fn ledger_candidate(
@@ -530,17 +716,25 @@ fn ledger_candidate(
 
 fn require_transaction_ids(ids: &[i64], maximum: usize, label: &str) -> OwnerBankResult<()> {
     if ids.is_empty() {
-        return Err(OwnerBankError::invalid(format!("{label} must not be empty")));
+        return Err(OwnerBankError::invalid(format!(
+            "{label} must not be empty"
+        )));
     }
     if ids.len() > maximum {
-        return Err(OwnerBankError::invalid(format!("{label} exceeds the bounded item limit")));
+        return Err(OwnerBankError::invalid(format!(
+            "{label} exceeds the bounded item limit"
+        )));
     }
     if ids.iter().any(|id| *id <= 0) {
-        return Err(OwnerBankError::invalid(format!("{label} contains an invalid transaction id")));
+        return Err(OwnerBankError::invalid(format!(
+            "{label} contains an invalid transaction id"
+        )));
     }
     let unique: HashSet<i64> = ids.iter().copied().collect();
     if unique.len() != ids.len() {
-        return Err(OwnerBankError::invalid(format!("{label} contains duplicate transaction ids")));
+        return Err(OwnerBankError::invalid(format!(
+            "{label} contains duplicate transaction ids"
+        )));
     }
     Ok(())
 }
@@ -573,7 +767,12 @@ fn match_review_from_transactions(
                 transaction_id,
                 level: match_level_name(candidate.level()),
                 score: candidate.score(),
-                reasons: candidate.reasons().iter().copied().map(match_reason_name).collect(),
+                reasons: candidate
+                    .reasons()
+                    .iter()
+                    .copied()
+                    .map(match_reason_name)
+                    .collect(),
                 requires_explicit_confirmation: candidate.requires_user_confirmation(),
             })
         })
@@ -606,6 +805,202 @@ pub(crate) fn owner_bank_match_review(
         .map(|id| books.transaction(*id).map_err(OwnerBankError::foundation))
         .collect::<OwnerBankResult<Vec<_>>>()?;
     match_review_from_transactions(&bank_line, &transactions)
+}
+
+fn source_kind(value: &str) -> OwnerBankResult<core::SourceKind> {
+    match value {
+        "manual" => Ok(core::SourceKind::Manual),
+        "csv" => Ok(core::SourceKind::Csv),
+        "ofx" => Ok(core::SourceKind::Ofx),
+        "qfx" => Ok(core::SourceKind::Qfx),
+        "document" => Ok(core::SourceKind::Document),
+        "adapter" => Ok(core::SourceKind::Adapter),
+        _ => Err(OwnerBankError::invalid(
+            "persisted bank activity has an unsupported provenance kind",
+        )),
+    }
+}
+
+fn source_format(value: &str) -> OwnerBankResult<core::bank_import::BankSourceFormat> {
+    match value {
+        "csv" => Ok(core::bank_import::BankSourceFormat::Csv),
+        "ofx" => Ok(core::bank_import::BankSourceFormat::Ofx),
+        "qfx" => Ok(core::bank_import::BankSourceFormat::Qfx),
+        _ => Err(OwnerBankError::invalid(
+            "persisted bank activity has an unsupported source format",
+        )),
+    }
+}
+
+fn bank_line_from_persisted(
+    persisted: &shark_foundation::BankActivityView,
+) -> OwnerBankResult<core::bank_import::BankLine> {
+    let activity = &persisted.activity;
+    let provenance = core::SourceProvenance::new(
+        source_kind(&activity.provenance_kind)?,
+        activity.provenance_source_reference.clone(),
+        activity.provenance_fingerprint.clone(),
+        activity.provenance_label.clone(),
+    )
+    .map_err(|error| OwnerBankError::invalid(error.to_string()))?;
+    let line = core::bank_import::BankLine::new(
+        core::RecordId::new(activity.source_account_id.clone())
+            .map_err(|error| OwnerBankError::invalid(error.to_string()))?,
+        activity.institution_account_id.clone(),
+        source_format(&activity.source_format)?,
+        activity.source_file_sha256.clone(),
+        activity.source_locator.clone(),
+        parse_date(&activity.posted_date)?,
+        activity.value_date.as_deref().map(parse_date).transpose()?,
+        activity.signed_amount_minor,
+        activity.description.clone(),
+        activity.payee.clone(),
+        activity.reference.clone(),
+        activity.external_transaction_id.clone(),
+        activity.raw_record_sha256.clone(),
+        provenance,
+    )
+    .map_err(OwnerBankError::bank)?;
+    if line.strong_identity_key() != activity.strong_identity_key.clone() {
+        return Err(OwnerBankError::invalid(
+            "persisted bank activity identity no longer reconstructs canonically",
+        ));
+    }
+    Ok(line)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OwnerBankActivityMatchReviewRequest {
+    books: OwnerBankBooksRef,
+    bank_activity_id: i64,
+}
+
+fn current_owner_transaction_ids(books: &Books) -> OwnerBankResult<Option<Vec<i64>>> {
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+
+    for record_kind in ["moneyIn", "moneyOut"] {
+        let mut offset = 0_i64;
+        loop {
+            let remaining = MAX_DISCOVERY_RECORDS_PER_KIND - offset;
+            if remaining <= 0 {
+                return Ok(None);
+            }
+            let limit = OWNER_DISCOVERY_PAGE.min(remaining);
+            let rows = books
+                .owner_money_records(record_kind, limit, offset)
+                .map_err(OwnerBankError::foundation)?;
+            let row_count = i64::try_from(rows.len()).map_err(|_| {
+                OwnerBankError::invalid("owner candidate page size is not representable")
+            })?;
+            if row_count == 0 {
+                break;
+            }
+            for row in rows {
+                if seen.insert(row.transaction_id) {
+                    result.push(row.transaction_id);
+                }
+            }
+            offset += row_count;
+            if row_count < limit {
+                break;
+            }
+            if offset >= MAX_DISCOVERY_RECORDS_PER_KIND {
+                return Ok(None);
+            }
+        }
+    }
+
+    Ok(Some(result))
+}
+
+fn discover_persisted_match_transactions(
+    books: &Books,
+) -> OwnerBankResult<Option<Vec<TransactionView>>> {
+    let Some(transaction_ids) = current_owner_transaction_ids(books)? else {
+        return Ok(None);
+    };
+    let mut transactions = Vec::new();
+
+    for transaction_id in transaction_ids {
+        let transaction = books
+            .transaction(transaction_id)
+            .map_err(OwnerBankError::foundation)?;
+        let Some(bank) = optional_bank_entry(&transaction)? else {
+            continue;
+        };
+        let already_matched = books
+            .bank_match_for_entry(transaction.id, bank.entry_id)
+            .map_err(OwnerBankError::foundation)?
+            .is_some();
+        if !bank_entry_is_discoverable(&bank, already_matched) {
+            continue;
+        }
+        transactions.push(transaction);
+        if transactions.len() > MAX_MATCH_CANDIDATES {
+            return Ok(None);
+        }
+    }
+
+    Ok(Some(transactions))
+}
+
+fn bounded_unmatched_persisted_review(
+    persisted: &shark_foundation::BankActivityView,
+) -> OwnerBankResult<OwnerBankMatchReview> {
+    if persisted.matched_transaction_id.is_some() {
+        return Err(OwnerBankError::invalid(
+            "bank activity already has a confirmed match",
+        ));
+    }
+    let bank_line = bank_line_from_persisted(persisted)?;
+    Ok(OwnerBankMatchReview {
+        bridge_version: OWNER_BANK_BRIDGE_VERSION,
+        bank_line: line_view(&bank_line),
+        candidates: Vec::new(),
+        recommended_transaction_id: None,
+        ambiguous_top: false,
+        requires_explicit_confirmation: false,
+    })
+}
+
+fn match_review_from_persisted_activity(
+    persisted: &shark_foundation::BankActivityView,
+    transactions: &[TransactionView],
+) -> OwnerBankResult<OwnerBankMatchReview> {
+    if persisted.matched_transaction_id.is_some() {
+        return Err(OwnerBankError::invalid(
+            "bank activity already has a confirmed match",
+        ));
+    }
+    let bank_line = bank_line_from_persisted(persisted)?;
+    match_review_from_transactions(&bank_line, transactions)
+}
+
+#[tauri::command]
+pub(crate) fn owner_bank_activity_match_review(
+    request: OwnerBankActivityMatchReviewRequest,
+) -> OwnerBankResult<OwnerBankMatchReview> {
+    if request.bank_activity_id <= 0 {
+        return Err(OwnerBankError::invalid("bank activity id must be positive"));
+    }
+    let books = request.books.open()?;
+    let persisted = books
+        .bank_activity(request.bank_activity_id)
+        .map_err(OwnerBankError::foundation)?;
+    if persisted.matched_transaction_id.is_some() {
+        return Err(OwnerBankError::invalid(
+            "bank activity already has a confirmed match",
+        ));
+    }
+
+    match discover_persisted_match_transactions(&books)? {
+        Some(transactions) if !transactions.is_empty() => {
+            match_review_from_persisted_activity(&persisted, &transactions)
+        }
+        Some(_) | None => bounded_unmatched_persisted_review(&persisted),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -751,7 +1146,14 @@ mod tests {
         }
     }
 
-    fn transaction(id: i64, date: &str, description: &str, direction: &str, amount: i64, status: &str) -> TransactionView {
+    fn transaction(
+        id: i64,
+        date: &str,
+        description: &str,
+        direction: &str,
+        amount: i64,
+        status: &str,
+    ) -> TransactionView {
         TransactionView {
             id,
             description: description.to_string(),
@@ -790,7 +1192,14 @@ mod tests {
             .clone();
         let review = match_review_from_transactions(
             &bank_line,
-            &[transaction(7, "2026-09-10", "Adobe Creative Cloud", "credit", 2_500, "uncleared")],
+            &[transaction(
+                7,
+                "2026-09-10",
+                "Adobe Creative Cloud",
+                "credit",
+                2_500,
+                "uncleared",
+            )],
         )
         .expect("match review");
         assert_eq!(review.candidates.len(), 1);
@@ -798,6 +1207,131 @@ mod tests {
         assert_eq!(review.candidates[0].level, "likely");
         assert!(review.requires_explicit_confirmation);
         assert_eq!(review.recommended_transaction_id, Some(7));
+    }
+
+    #[test]
+    fn persisted_activity_match_review_reuses_frozen_matcher_and_rejects_matched_rows() {
+        let preview = core::bank_import::preview_csv(
+            "Date,Description,Reference,TransactionId,Amount\n2026-09-10,Adobe Creative Cloud,INV-1,T-1,-25.00\n",
+            core::RecordId::new("bank-main").unwrap(),
+            &profile().to_core().unwrap(),
+        )
+        .unwrap();
+        let write = activity_write(&preview.lines()[0]);
+        let mut persisted = shark_foundation::BankActivityView {
+            id: 17,
+            activity: write,
+            imported_at: "2026-09-10 00:00:00".to_string(),
+            imported_by: "local-owner".to_string(),
+            matched_transaction_id: None,
+            matched_entry_id: None,
+            match_level: None,
+            match_score: None,
+            match_reasons: Vec::new(),
+            clearance_state: None,
+        };
+        let tx = transaction(
+            7,
+            "2026-09-10",
+            "Adobe Creative Cloud",
+            "credit",
+            2_500,
+            "uncleared",
+        );
+        let review =
+            match_review_from_persisted_activity(&persisted, &[tx]).expect("persisted review");
+        assert_eq!(review.candidates.len(), 1);
+        assert!(review.requires_explicit_confirmation);
+
+        persisted.matched_transaction_id = Some(7);
+        assert!(
+            match_review_from_persisted_activity(
+                &persisted,
+                &[transaction(
+                    7,
+                    "2026-09-10",
+                    "Adobe Creative Cloud",
+                    "credit",
+                    2_500,
+                    "cleared",
+                )],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn persisted_match_review_request_discovers_candidates_in_rust() {
+        let base = serde_json::json!({
+            "books": {
+                "fileName": "safe.sqlite",
+                "booksId": "safe-books",
+                "actor": "owner"
+            },
+            "bankActivityId": 17
+        });
+        assert!(
+            serde_json::from_value::<OwnerBankActivityMatchReviewRequest>(base.clone()).is_ok()
+        );
+
+        let mut bad = base;
+        bad.as_object_mut().unwrap().insert(
+            "candidateTransactionIds".to_string(),
+            serde_json::json!([1, 2, 3]),
+        );
+        assert!(
+            serde_json::from_value::<OwnerBankActivityMatchReviewRequest>(bad).is_err(),
+            "webview candidate IDs must be rejected for persisted activity match review"
+        );
+    }
+
+    #[test]
+    fn candidate_discovery_skips_cash_matched_and_reconciled_entries() {
+        let cash = TransactionView {
+            id: 90,
+            description: "Cash expense".to_string(),
+            reference: None,
+            currency: "GBP".to_string(),
+            date: "2026-09-10".to_string(),
+            entries: vec![EntryView {
+                id: 900,
+                account_code: "1010".to_string(),
+                direction: "credit".to_string(),
+                amount_minor: 1_000,
+                status: "uncleared".to_string(),
+            }],
+        };
+        assert!(optional_bank_entry(&cash).unwrap().is_none());
+
+        let uncleared = transaction(
+            91,
+            "2026-09-10",
+            "Bank expense",
+            "credit",
+            1_000,
+            "uncleared",
+        );
+        let uncleared_bank = optional_bank_entry(&uncleared).unwrap().unwrap();
+        assert!(bank_entry_is_discoverable(&uncleared_bank, false));
+        assert!(!bank_entry_is_discoverable(&uncleared_bank, true));
+
+        let reconciled = transaction(
+            92,
+            "2026-09-10",
+            "Reconciled expense",
+            "credit",
+            1_000,
+            "reconciled",
+        );
+        let reconciled_bank = optional_bank_entry(&reconciled).unwrap().unwrap();
+        assert!(!bank_entry_is_discoverable(&reconciled_bank, false));
+    }
+
+    #[test]
+    fn candidate_discovery_bounds_are_frozen() {
+        assert_eq!(OWNER_DISCOVERY_PAGE, 200);
+        assert_eq!(MAX_DISCOVERY_RECORDS_PER_KIND, 1_000);
+        assert_eq!(MAX_MATCH_CANDIDATES, 100);
     }
 
     #[test]
@@ -819,7 +1353,14 @@ mod tests {
         let preview = reconciliation_preview_from_transactions(
             50_000,
             60_000,
-            &[transaction(1, "2026-09-10", "Receipt", "debit", 10_000, "uncleared")],
+            &[transaction(
+                1,
+                "2026-09-10",
+                "Receipt",
+                "debit",
+                10_000,
+                "uncleared",
+            )],
         )
         .expect("preview still visible");
         assert_eq!(preview.difference_pence, 0);
