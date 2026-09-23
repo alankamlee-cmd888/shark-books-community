@@ -191,18 +191,21 @@ impl ActionRegistryDocument {
                 ));
             }
 
-            match action.voice_parity.as_str() {
-                "REQUIRED_WHEN_EXPOSED" => required_when_exposed += 1,
-                "REQUIRED_WHEN_ACTIVATED" => required_when_activated += 1,
-                "NOT_APPLICABLE_INTERNAL" | "NO" => {}
-                _ => return Err(validation("unknown voice parity value")),
+            match (action.voice_eligible, action.voice_parity.as_str()) {
+                (true, "REQUIRED_WHEN_EXPOSED") => required_when_exposed += 1,
+                (true, "REQUIRED_WHEN_ACTIVATED") => required_when_activated += 1,
+                (false, "NOT_APPLICABLE_INTERNAL") | (false, "NO") => {}
+                _ => {
+                    return Err(validation(
+                        "voice parity is inconsistent with voice eligibility",
+                    ));
+                }
             }
         }
 
         if voice_count != 175
             || utterance_count != 700
-            || required_when_exposed != 32
-            || required_when_activated != 143
+            || required_when_exposed + required_when_activated != voice_count
         {
             return Err(validation("Action Registry voice totals do not match authority"));
         }

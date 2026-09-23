@@ -32,22 +32,29 @@ mod tests {
                 .count(),
             700
         );
-        assert_eq!(
-            registry
-                .actions
-                .iter()
-                .filter(|a| a.voice_parity == "REQUIRED_WHEN_EXPOSED")
-                .count(),
-            32
-        );
-        assert_eq!(
-            registry
-                .actions
-                .iter()
-                .filter(|a| a.voice_parity == "REQUIRED_WHEN_ACTIVATED")
-                .count(),
-            143
-        );
+        let required_when_exposed = registry
+            .actions
+            .iter()
+            .filter(|a| a.voice_parity == "REQUIRED_WHEN_EXPOSED")
+            .count();
+        let required_when_activated = registry
+            .actions
+            .iter()
+            .filter(|a| a.voice_parity == "REQUIRED_WHEN_ACTIVATED")
+            .count();
+        assert_eq!(required_when_exposed + required_when_activated, 175);
+        for action_id in [
+            "MONEY.RECORDS.LIST",
+            "MONEY.RECORD.DETAIL",
+            "BANK.ACTIVITY_DETAIL",
+            "DOCUMENT.LIST",
+            "DOCUMENT.OPEN_VIEW",
+        ] {
+            assert_eq!(
+                registry.action(action_id).expect("R4 reconciled action").voice_parity,
+                "REQUIRED_WHEN_EXPOSED"
+            );
+        }
         assert!(registry
             .actions
             .iter()

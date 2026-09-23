@@ -75,8 +75,8 @@ export const UIB_ACTIONS = {
       }
     ],
     "choiceHints": [],
-    "availabilityState": "FUTURE_NOT_AVAILABLE",
-    "backendState": "LOCKED"
+    "availabilityState": "OWNER_UI_BOUND_PRE_CANDIDATE",
+    "backendState": "READY"
   },
   "documentOpenView": {
     "actionId": "DOCUMENT.OPEN_VIEW",
@@ -95,8 +95,8 @@ export const UIB_ACTIONS = {
       }
     ],
     "choiceHints": [],
-    "availabilityState": "FUTURE_NOT_AVAILABLE",
-    "backendState": "LOCKED"
+    "availabilityState": "OWNER_UI_BOUND_PRE_CANDIDATE",
+    "backendState": "READY"
   },
   "documentAttach": {
     "actionId": "DOCUMENT.ATTACH",

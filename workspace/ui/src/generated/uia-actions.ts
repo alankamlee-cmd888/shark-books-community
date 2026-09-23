@@ -385,8 +385,8 @@ export const UIA_ACTIONS = {
       "Money In | Money Out",
       "dates/categories"
     ],
-    "availabilityState": "FUTURE_NOT_AVAILABLE",
-    "backendState": "LOCKED"
+    "availabilityState": "OWNER_UI_BOUND_PRE_CANDIDATE",
+    "backendState": "READY"
   },
   "moneyRecordDetail": {
     "actionId": "MONEY.RECORD.DETAIL",
@@ -405,8 +405,8 @@ export const UIA_ACTIONS = {
       }
     ],
     "choiceHints": [],
-    "availabilityState": "FUTURE_NOT_AVAILABLE",
-    "backendState": "LOCKED"
+    "availabilityState": "OWNER_UI_BOUND_PRE_CANDIDATE",
+    "backendState": "READY"
   },
   "correctionPreview": {
     "actionId": "CORRECTION.PREVIEW",
@@ -661,8 +661,8 @@ export const UIA_ACTIONS = {
       }
     ],
     "choiceHints": [],
-    "availabilityState": "DOMAIN_ONLY_NO_OWNER_BRIDGE",
-    "backendState": "LOCKED"
+    "availabilityState": "OWNER_UI_BOUND_PRE_CANDIDATE",
+    "backendState": "READY"
   },
   "bankMatchReview": {
     "actionId": "BANK.MATCH_REVIEW",

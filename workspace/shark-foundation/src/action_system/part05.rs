@@ -132,23 +132,22 @@ mod command_text_tests {
     }
 
     #[test]
-    fn exposed_but_stale_locked_read_view_action_stays_fail_closed() {
+    fn reconciled_read_view_action_is_executable() {
         let controller = ActionController::new(
             load_action_registry().expect("registry"),
             ["DOCUMENT.OPEN_VIEW"],
         )
         .expect("controller");
+        let owner_fact = ActionFact::new("document_id", "doc-1", FactSource::Owner)
+            .expect("owner fact");
         let outcome = resolve_command_text(
             &controller,
             "Open receipt/document",
-            Vec::new(),
+            vec![owner_fact],
         );
         assert_eq!(outcome.state, ResolutionState::Known);
-        assert_eq!(outcome.execution, ExecutionAvailability::Locked);
-        assert_eq!(
-            outcome.attention.expect("attention").reason_code,
-            AttentionReason::LockedAction
-        );
+        assert_eq!(outcome.execution, ExecutionAvailability::Executable);
+        assert_eq!(outcome.action_id.as_deref(), Some("DOCUMENT.OPEN_VIEW"));
     }
 
     #[test]

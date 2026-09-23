@@ -47,7 +47,7 @@ EXPECTED_EXPOSED = {
     "SETTINGS.STORAGE_ROOT.SELECT",
 }
 
-R4_STALE_LOCKED = {
+R4_RECONCILED_READY = {
     "MONEY.RECORDS.LIST",
     "MONEY.RECORD.DETAIL",
     "BANK.ACTIVITY_DETAIL",
@@ -171,8 +171,8 @@ def main() -> int:
         require(exposed == EXPECTED_EXPOSED, "native command-text exposure set is exactly the 37 frozen UI-A/UI-B Action IDs")
         binding_ids = generated_binding_ids(repo)
         require(binding_ids == EXPECTED_EXPOSED, "generated UI-A/UI-B Action IDs reconcile exactly to the command-text exposure set")
-        for action_id in sorted(R4_STALE_LOCKED):
-            require(by_id[action_id]["backend_state"] == "LOCKED", f"{action_id} remains fail-closed pending R4 metadata reconciliation")
+        for action_id in sorted(R4_RECONCILED_READY):
+            require(by_id[action_id]["backend_state"] == "READY", f"{action_id} is READY after explicit R4 metadata reconciliation")
         require("owner_command_text_resolve" in native, "dedicated owner_command_text_resolve native command exists")
         require("candidate Action ID is not a candidate" in native or "selected Action ID is not a candidate" in native, "ambiguity selection is rebound to the original finite candidate set")
         for forbidden in [
@@ -215,7 +215,7 @@ def main() -> int:
             for forbidden in ["fetch(", "XMLHttpRequest", "WebSocket", "http://", "https://", "shellCommand", "databasePath", "dbPath"]:
                 require(forbidden not in source, f"{label} excludes forbidden authority: {forbidden}")
 
-        require("R4" in native or all(by_id[x]["backend_state"] == "LOCKED" for x in R4_STALE_LOCKED), "stale read/view metadata is not silently promoted during R3")
+        require(all(by_id[x]["backend_state"] == "READY" for x in R4_RECONCILED_READY), "R4 metadata reconciliation makes the five proven read/view actions controller-executable")
 
     except (AssertionError, KeyError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL: {exc}")

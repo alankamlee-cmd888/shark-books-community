@@ -7,8 +7,8 @@ use shark_foundation::action_system::{
     SlotSource,
 };
 
-// Five later R1/R2 read/view bridges still carry stale LOCKED registry metadata.
-// R3 deliberately leaves those rows fail-closed; R4 owns lifecycle/backend reconciliation.
+// R4 reconciles the five proven R1/R2 read/view bridges to READY in the same canonical registry.
+// Command text still gains no authority beyond the existing bounded manual/native routes.
 pub(crate) const COMMAND_TEXT_EXPOSED_ACTION_IDS: &[&str] = &[
     "BOOKS.CREATE",
     "BOOKS.OPEN",
@@ -436,6 +436,24 @@ mod tests {
         })
         .expect("resolution");
         assert_eq!(response.resolution.action_id.as_deref(), Some("REPORT.SUMMARY"));
+        assert_eq!(response.resolution.state, "KNOWN");
+        assert_eq!(response.resolution.execution, "EXECUTABLE");
+    }
+
+    #[test]
+    fn reconciled_document_open_is_command_text_executable_with_owner_fact() {
+        let response = resolve_impl(OwnerCommandTextRequest {
+            text: "Open receipt/document".to_string(),
+            books_reference: Some("current-books".to_string()),
+            actor: Some("owner".to_string()),
+            candidate_action_id: None,
+            facts: vec![OwnerCommandFactInput {
+                slot_id: "document_id".to_string(),
+                value: "doc-1".to_string(),
+            }],
+        })
+        .expect("resolution");
+        assert_eq!(response.resolution.action_id.as_deref(), Some("DOCUMENT.OPEN_VIEW"));
         assert_eq!(response.resolution.state, "KNOWN");
         assert_eq!(response.resolution.execution, "EXECUTABLE");
     }
