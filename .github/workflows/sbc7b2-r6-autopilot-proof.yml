@@ -1,4 +1,4 @@
-name: SBC Autopilot Runner Admission Probe
+name: SBC Autopilot R6 Windows Exact-SHA Proof
 
 on:
   push:
@@ -11,15 +11,71 @@ permissions:
   contents: read
 
 jobs:
-  admission:
-    name: Hosted runner admission probe
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  r6-windows:
+    name: R6 Windows SG0-SG8 exact c9fd45ae
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CANDIDATE_SHA: c9fd45ae67e977ba986706308ac6fae2d3bdf731
     steps:
-      - name: Prove runner allocated
-        shell: bash
+      - name: Checkout exact frozen candidate
+        uses: actions/checkout@v4
+        with:
+          ref: c9fd45ae67e977ba986706308ac6fae2d3bdf731
+          fetch-depth: 0
+
+      - name: Prove exact candidate identity
+        shell: pwsh
         run: |
-          set -euo pipefail
-          echo "SBC_AUTOPILOT_RUNNER_ADMISSION=PASS"
-          echo "RUNNER_OS=$RUNNER_OS"
-          echo "NO_PRODUCT_CANDIDATE_ACTION=true"
+          $ErrorActionPreference = 'Stop'
+          $Head = (git rev-parse HEAD).Trim()
+          if ($Head -ne $env:CANDIDATE_SHA) { throw "Expected $env:CANDIDATE_SHA but got $Head" }
+          if (@(git status --porcelain).Count -ne 0) { throw 'Candidate checkout is not clean.' }
+          Write-Host "PASS_EXACT_CANDIDATE=$Head"
+
+      - name: Install exact Rust toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install 1.98.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'rustup toolchain install failed' }
+          rustup run 1.98.1 rustc --version
+
+      - name: Run candidate-owned Windows R6 SG0-SG8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ci\run_sbc7b2_supergate_windows.ps1" -ExpectedHead $env:CANDIDATE_SHA
+          if ($LASTEXITCODE -ne 0) { throw "R6 runner failed with exit code $LASTEXITCODE" }
+
+      - name: Emit and stage R6 evidence
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Zip = Get-ChildItem (Join-Path $env:USERPROFILE 'Downloads') -Filter 'SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_*.zip' |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if ($null -eq $Zip) { throw 'R6 evidence ZIP not found.' }
+          $Sha = (Get-FileHash -Algorithm SHA256 $Zip.FullName).Hash.ToLowerInvariant()
+          New-Item -ItemType Directory -Force -Path ".\autopilot-artifacts" | Out-Null
+          Copy-Item $Zip.FullName ".\autopilot-artifacts\$($Zip.Name)" -Force
+          [ordered]@{
+            schema = 'sbc7b2-r6-autopilot-github-windows-v1'
+            candidate_sha = $env:CANDIDATE_SHA
+            evidence_zip_name = $Zip.Name
+            evidence_zip_sha256 = $Sha
+            product_candidate_modified = $false
+            merge = $false
+            public_release = $false
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 ".\autopilot-artifacts\R6_AUTOPILOT_SUMMARY.json"
+          Write-Host "R6_EVIDENCE_ZIP=$($Zip.Name)"
+          Write-Host "R6_EVIDENCE_SHA256=$Sha"
+
+      - name: Upload R6 evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SBC7B2-R6-Windows-c9fd45ae
+          path: autopilot-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
