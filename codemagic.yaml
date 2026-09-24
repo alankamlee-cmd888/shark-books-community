@@ -338,3 +338,29 @@ workflows:
     artifacts:
       - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_SUMMARY.*
+
+  sbc7b2-r6-c9fd-windows-proof:
+    name: SBC-7B2 R6 exact-SHA Windows proof c9fd45ae
+    instance_type: windows_x2
+    max_build_duration: 120
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: 'sbc7b2-r6-codemagic-c9fd-20260924'
+          include: true
+          source: true
+      cancel_previous_builds: true
+    environment:
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run exact c9fd45ae Windows Super-Gate and return evidence
+        script: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CM_BUILD_DIR\ci\run_r6_codemagic_return_c9fd.ps1"
+    artifacts:
+      - artifacts/r6-c9fd-return/**
+      - "$HOME/Downloads/SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_*.zip"
