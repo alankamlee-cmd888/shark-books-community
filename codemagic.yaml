@@ -346,6 +346,7 @@ workflows:
     triggering:
       events:
         - push
+        - pull_request
       branch_patterns:
         - pattern: 'sbc7b2-r6-codemagic-c9fd-20260924'
           include: true
