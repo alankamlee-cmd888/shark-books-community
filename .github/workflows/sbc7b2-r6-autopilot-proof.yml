@@ -8,7 +8,7 @@ on:
       - .github/workflows/sbc7b2-r6-autopilot-proof.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   r6-windows:
@@ -46,49 +46,26 @@ jobs:
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Runner -ExpectedHead $env:CANDIDATE_SHA
           if($LASTEXITCODE -ne 0){ throw "R6 runner failed with exit code $LASTEXITCODE" }
 
-      - name: Bank exact R6 evidence on harness branch
+      - name: Emit exact R6 evidence identities
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $Zip = Get-ChildItem (Join-Path $env:USERPROFILE 'Downloads') -Filter 'SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_*.zip' |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if($null -eq $Zip){ throw 'R6 evidence ZIP not found' }
           $ZipSha = (Get-FileHash -Algorithm SHA256 $Zip.FullName).Hash.ToLowerInvariant()
-
-          $HarnessDir = Join-Path $env:RUNNER_TEMP 'harness'
-          if(Test-Path $HarnessDir){ Remove-Item $HarnessDir -Recurse -Force }
-          $AuthUrl = "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git"
-          git clone --branch $env:HARNESS_BRANCH --single-branch $AuthUrl $HarnessDir
-          if($LASTEXITCODE -ne 0){ throw 'harness clone failed' }
-
-          $EvidenceDir = Join-Path $HarnessDir ("autopilot-evidence\r6-" + $env:CANDIDATE_SHA)
-          New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
-          Copy-Item $Zip.FullName (Join-Path $EvidenceDir $Zip.Name) -Force
-
-          $Summary = [ordered]@{
-            schema = 'sbc7b2-r6-autopilot-github-windows-v1'
-            candidate_sha = $env:CANDIDATE_SHA
-            workflow_run_id = $env:GITHUB_RUN_ID
-            workflow_run_attempt = $env:GITHUB_RUN_ATTEMPT
-            runner_os = $env:RUNNER_OS
-            evidence_zip_name = $Zip.Name
-            evidence_zip_sha256 = $ZipSha
-            banked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
-            product_candidate_modified_by_harness = $false
-            merge = $false
-            public_release = $false
+          Write-Host "R6_EVIDENCE_ZIP=$($Zip.Name)"
+          Write-Host "R6_EVIDENCE_SHA256=$ZipSha"
+          $Extract = Join-Path $env:RUNNER_TEMP 'r6-evidence'
+          if(Test-Path $Extract){ Remove-Item $Extract -Recurse -Force }
+          Expand-Archive -Path $Zip.FullName -DestinationPath $Extract -Force
+          foreach($name in @('SUMMARY.json','CANDIDATE_SHA.txt','EXPECTED_SHA.txt','BASE_SHA.txt','CHANGED_PATHS.txt','TOOLCHAIN.json')){
+            $p=Join-Path $Extract $name
+            if(Test-Path $p){ Write-Host "--- $name ---"; Get-Content $p -Raw }
           }
-          $Summary | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 (Join-Path $EvidenceDir 'R6_AUTOPILOT_SUMMARY.json')
-
-          git -C $HarnessDir config user.name 'MTD Shark SBC Autopilot'
-          git -C $HarnessDir config user.email 'sbc-autopilot@mtdshark.invalid'
-          git -C $HarnessDir add -- 'autopilot-evidence'
-          git -C $HarnessDir commit -m "SBC7B2 R6: bank Windows evidence for $env:CANDIDATE_SHA"
-          if($LASTEXITCODE -ne 0){ throw 'evidence commit failed' }
-          git -C $HarnessDir push origin "HEAD:$env:HARNESS_BRANCH"
-          if($LASTEXITCODE -ne 0){ throw 'evidence push failed' }
-          Write-Host "[PASS] R6 evidence banked: $($Zip.Name) SHA-256 $ZipSha"
-
-# harness trigger: ordinary push after initial branch registration
+          $g=Join-Path $Extract 'gates'
+          if(Test-Path $g){ Get-ChildItem $g -Filter '*.json' | Sort-Object Name | ForEach-Object { Write-Host "--- gates/$($_.Name) ---"; Get-Content $_.FullName -Raw } }
+          Write-Host "R6_AUTOPILOT_CANDIDATE=$env:CANDIDATE_SHA"
+          Write-Host 'R6_AUTOPILOT_PRODUCT_CANDIDATE_MODIFIED=false'
+          Write-Host 'R6_AUTOPILOT_MERGE=false'
+          Write-Host 'R6_AUTOPILOT_PUBLIC_RELEASE=false'
