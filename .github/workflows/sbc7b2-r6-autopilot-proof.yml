@@ -90,3 +90,5 @@ jobs:
           git -C $HarnessDir push origin "HEAD:$env:HARNESS_BRANCH"
           if($LASTEXITCODE -ne 0){ throw 'evidence push failed' }
           Write-Host "[PASS] R6 evidence banked: $($Zip.Name) SHA-256 $ZipSha"
+
+# harness trigger: ordinary push after initial branch registration
