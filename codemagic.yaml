@@ -5,11 +5,10 @@ workflows:
     max_build_duration: 120
     triggering:
       events:
-        - pull_request
+        - push
       branch_patterns:
-        - pattern: 'main'
+        - pattern: 'sbc7b2-r6-codemagic-trigger-20260924'
           include: true
-          source: false
       cancel_previous_builds: true
     environment:
       vars:
