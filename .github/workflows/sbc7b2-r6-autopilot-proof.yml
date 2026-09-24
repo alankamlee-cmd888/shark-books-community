@@ -1,0 +1,92 @@
+name: SBC Autopilot R6 Windows Exact-SHA Proof
+
+on:
+  push:
+    branches:
+      - sbc7b2-r6-autopilot-proof-20260924
+    paths:
+      - .github/workflows/sbc7b2-r6-autopilot-proof.yml
+
+permissions:
+  contents: write
+
+jobs:
+  r6-windows:
+    name: R6 Windows SG0-SG8 exact c9fd45ae
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CANDIDATE_SHA: c9fd45ae67e977ba986706308ac6fae2d3bdf731
+      HARNESS_BRANCH: sbc7b2-r6-autopilot-proof-20260924
+    steps:
+      - name: Clone exact candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Candidate = $env:CANDIDATE_SHA
+          $RepoUrl = "https://github.com/$env:GITHUB_REPOSITORY.git"
+          $CandidateDir = Join-Path $env:RUNNER_TEMP 'candidate'
+          if(Test-Path $CandidateDir){ Remove-Item $CandidateDir -Recurse -Force }
+          git clone $RepoUrl $CandidateDir
+          if($LASTEXITCODE -ne 0){ throw 'candidate clone failed' }
+          git -C $CandidateDir checkout --detach $Candidate
+          if($LASTEXITCODE -ne 0){ throw 'candidate checkout failed' }
+          $Head = (git -C $CandidateDir rev-parse HEAD).Trim()
+          if($Head -ne $Candidate){ throw "candidate SHA mismatch: $Head" }
+          if(@(git -C $CandidateDir status --porcelain).Count -ne 0){ throw 'candidate checkout not clean' }
+          "candidate_sha=$Head" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Run exact candidate Windows R6 SG0-SG8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $CandidateDir = Join-Path $env:RUNNER_TEMP 'candidate'
+          $Runner = Join-Path $CandidateDir 'ci\run_sbc7b2_supergate_windows.ps1'
+          if(-not (Test-Path $Runner)){ throw 'candidate R6 runner missing' }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Runner -ExpectedHead $env:CANDIDATE_SHA
+          if($LASTEXITCODE -ne 0){ throw "R6 runner failed with exit code $LASTEXITCODE" }
+
+      - name: Bank exact R6 evidence on harness branch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Zip = Get-ChildItem (Join-Path $env:USERPROFILE 'Downloads') -Filter 'SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_*.zip' |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if($null -eq $Zip){ throw 'R6 evidence ZIP not found' }
+          $ZipSha = (Get-FileHash -Algorithm SHA256 $Zip.FullName).Hash.ToLowerInvariant()
+
+          $HarnessDir = Join-Path $env:RUNNER_TEMP 'harness'
+          if(Test-Path $HarnessDir){ Remove-Item $HarnessDir -Recurse -Force }
+          $AuthUrl = "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git"
+          git clone --branch $env:HARNESS_BRANCH --single-branch $AuthUrl $HarnessDir
+          if($LASTEXITCODE -ne 0){ throw 'harness clone failed' }
+
+          $EvidenceDir = Join-Path $HarnessDir ("autopilot-evidence\r6-" + $env:CANDIDATE_SHA)
+          New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
+          Copy-Item $Zip.FullName (Join-Path $EvidenceDir $Zip.Name) -Force
+
+          $Summary = [ordered]@{
+            schema = 'sbc7b2-r6-autopilot-github-windows-v1'
+            candidate_sha = $env:CANDIDATE_SHA
+            workflow_run_id = $env:GITHUB_RUN_ID
+            workflow_run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS
+            evidence_zip_name = $Zip.Name
+            evidence_zip_sha256 = $ZipSha
+            banked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            product_candidate_modified_by_harness = $false
+            merge = $false
+            public_release = $false
+          }
+          $Summary | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 (Join-Path $EvidenceDir 'R6_AUTOPILOT_SUMMARY.json')
+
+          git -C $HarnessDir config user.name 'MTD Shark SBC Autopilot'
+          git -C $HarnessDir config user.email 'sbc-autopilot@mtdshark.invalid'
+          git -C $HarnessDir add -- 'autopilot-evidence'
+          git -C $HarnessDir commit -m "SBC7B2 R6: bank Windows evidence for $env:CANDIDATE_SHA"
+          if($LASTEXITCODE -ne 0){ throw 'evidence commit failed' }
+          git -C $HarnessDir push origin "HEAD:$env:HARNESS_BRANCH"
+          if($LASTEXITCODE -ne 0){ throw 'evidence push failed' }
+          Write-Host "[PASS] R6 evidence banked: $($Zip.Name) SHA-256 $ZipSha"
