@@ -1,0 +1,72 @@
+name: SBC-7B2 R6 exact-SHA Windows proof c9fd45ae
+
+on:
+  push:
+    branches:
+      - sbc7b2-r6-c9fd-proof-harness-20260924
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: c9fd45ae67e977ba986706308ac6fae2d3bdf731
+  RUST_TOOLCHAIN: "1.98.1"
+  CARGO_BUILD_JOBS: "1"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  r6-windows-supergate:
+    name: R6 Windows SG0-SG8 exact candidate
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Clone repository and pin exact immutable candidate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone "https://github.com/$env:GITHUB_REPOSITORY.git" candidate
+          git -C candidate checkout --detach $env:CANDIDATE_SHA
+          $Head = (git -C candidate rev-parse HEAD).Trim()
+          if ($Head -ne $env:CANDIDATE_SHA) { throw "Candidate checkout mismatch: $Head" }
+          if (@(git -C candidate status --porcelain).Count -ne 0) { throw "Candidate checkout is dirty." }
+
+      - name: Install exact Rust toolchain
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup run $env:RUST_TOOLCHAIN rustc --version
+
+      - name: Run frozen SBC-7B2 Windows Super-Gate
+        id: supergate
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force -Path harness-evidence | Out-Null
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "candidate\ci\run_sbc7b2_supergate_windows.ps1" -ExpectedHead $env:CANDIDATE_SHA 2>&1 |
+            Tee-Object -FilePath "harness-evidence\r6_console.log"
+          $Code = $LASTEXITCODE
+          Set-Content -Encoding ASCII "harness-evidence\r6_exit_code.txt" "$Code"
+          Set-Content -Encoding ASCII "harness-evidence\candidate_sha.txt" ($env:CANDIDATE_SHA + "`n")
+          exit $Code
+
+      - name: Upload R6 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SBC7B2-R6-WINDOWS-c9fd45ae
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            harness-evidence/**
+            ~/Downloads/SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_*.zip
+
+      - name: Enforce R6 result
+        if: always()
+        shell: powershell
+        run: |
+          if ('${{ steps.supergate.outcome }}' -ne 'success') {
+            Write-Error "R6 Windows Super-Gate failed."
+            exit 1
+          }
