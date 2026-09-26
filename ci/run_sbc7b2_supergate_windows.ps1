@@ -53,6 +53,67 @@ function Run-Logged {
     }
 }
 
+function Get-QuotedCommandList {
+    param([string]$Text, [string]$Pattern, [string]$Label)
+    $Match = [regex]::Match(
+        $Text,
+        $Pattern,
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    if (-not $Match.Success) { throw "B3C $Label command array not found." }
+    return @(
+        [regex]::Matches($Match.Groups[1].Value, '"([A-Za-z0-9_:-]+)"') |
+            ForEach-Object { $_.Groups[1].Value }
+    )
+}
+
+function Assert-B3cExclusionBoundary {
+    $ByteInvariantPaths = @(
+        'workspace/shark-tauri-spike/Cargo.toml',
+        'workspace/shark-tauri-spike/src/ocr_native.rs',
+        'product/ocr-runtime/windows/shark_ocr_single.py',
+        'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
+        'scripts/check_sbc6b_b3c_native_gate.py'
+    )
+    $ByteChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $ByteInvariantPaths)
+    if ($ByteChanged.Count -ne 0) {
+        throw "B3C packaged-runtime exclusion is invalid because runtime-sensitive paths changed: $($ByteChanged -join ', ')"
+    }
+
+    $BuildPath = 'workspace/shark-tauri-spike/build.rs'
+    $PermissionPath = 'workspace/shark-tauri-spike/permissions/shark-shell.toml'
+    $BaseBuild = (& git -C $Repo show "${Base}:$BuildPath" | Out-String)
+    $HeadBuild = Get-Content -Raw -Encoding UTF8 (Join-Path $Repo $BuildPath)
+    $BasePermission = (& git -C $Repo show "${Base}:$PermissionPath" | Out-String)
+    $HeadPermission = Get-Content -Raw -Encoding UTF8 (Join-Path $Repo $PermissionPath)
+
+    $BuildPattern = '\.commands\s*\(\s*&\[(.*?)\]\s*\)'
+    $PermissionPattern = 'commands\.allow\s*=\s*\[(.*?)\]'
+    $BaseBuildCommands = @(Get-QuotedCommandList $BaseBuild $BuildPattern 'base build.rs')
+    $HeadBuildCommands = @(Get-QuotedCommandList $HeadBuild $BuildPattern 'candidate build.rs')
+    $BasePermissionCommands = @(Get-QuotedCommandList $BasePermission $PermissionPattern 'base permission')
+    $HeadPermissionCommands = @(Get-QuotedCommandList $HeadPermission $PermissionPattern 'candidate permission')
+
+    if (($BaseBuildCommands -join "`n") -ne ($BasePermissionCommands -join "`n")) {
+        throw 'B3C base build/permission command lists differ.'
+    }
+    if (($HeadBuildCommands -join "`n") -ne ($HeadPermissionCommands -join "`n")) {
+        throw 'B3C candidate build/permission command lists differ.'
+    }
+    if (@($HeadBuildCommands | Where-Object { $_ -eq 'ocr_extract_receipt' }).Count -ne 1) {
+        throw 'B3C candidate must retain exactly one ocr_extract_receipt registration.'
+    }
+    $Removed = @($BaseBuildCommands | Where-Object { $_ -notin $HeadBuildCommands })
+    if ($Removed.Count -ne 0) {
+        throw "B3C candidate removed protected commands: $($Removed -join ', ')"
+    }
+    $Added = @($HeadBuildCommands | Where-Object { $_ -notin $BaseBuildCommands })
+    $NonOwnerAdded = @($Added | Where-Object { $_ -notmatch '^owner_' })
+    if ($NonOwnerAdded.Count -ne 0) {
+        throw "B3C candidate added non-owner commands to protected manifests: $($NonOwnerAdded -join ', ')"
+    }
+}
+
 if ($env:OS -ne 'Windows_NT') { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
 New-Item -ItemType Directory -Force -Path $ResultDir, $GateDir, $LogDir, $Downloads | Out-Null
 if (Test-Path $CargoTarget) { Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue }
@@ -72,6 +133,7 @@ try {
     foreach ($tool in @('git','python','rustup')) {
         if ($null -eq (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is required." }
     }
+    Assert-B3cExclusionBoundary
     Run-Logged 'sg0_bootstrap_beankeeper' { python -B (Join-Path $Repo 'scripts\bootstrap_beankeeper.py') }
     Run-Logged 'sg0_rust_version' { rustup run $Toolchain rustc --version }
     $LockPath = Join-Path $Workspace 'Cargo.lock'
@@ -138,23 +200,10 @@ try {
         rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-foundation --locked --jobs 1 -- --test-threads=1
     }
 
-    # The eight Windows B3C packaged-runtime tests require the standalone B3C harness
-    # to rebuild real/fake OCR sidecars and receipt fixtures. FT1/FT2 does not change
-    # those runtime paths, so prove that boundary is unchanged before excluding only
-    # those eight already-proven packaged-runtime cases from this inherited SG6 sweep.
-    $B3cInvariantPaths = @(
-        'workspace/shark-tauri-spike/Cargo.toml',
-        'workspace/shark-tauri-spike/build.rs',
-        'workspace/shark-tauri-spike/src/ocr_native.rs',
-        'workspace/shark-tauri-spike/permissions/shark-shell.toml',
-        'product/ocr-runtime/windows/shark_ocr_single.py',
-        'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
-        'scripts/check_sbc6b_b3c_native_gate.py'
-    )
-    $B3cChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $B3cInvariantPaths)
-    if ($B3cChanged.Count -ne 0) {
-        throw "B3C packaged-runtime exclusion is invalid because inherited OCR paths changed: $($B3cChanged -join ', ')"
-    }
+    # SG0 already proved the B3C exclusion boundary before any expensive build:
+    # runtime-sensitive OCR paths are byte-invariant, while the Tauri build/permission
+    # command lists preserve every protected command and allow only additive owner_* commands.
+    # The eight packaged-runtime-only cases therefore remain covered by their dedicated B3C proof.
 
     Run-Logged 'sg6_tauri' {
         rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked --jobs 1 -- `
