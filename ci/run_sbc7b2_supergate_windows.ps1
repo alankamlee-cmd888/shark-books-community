@@ -114,7 +114,7 @@ function Assert-B3cExclusionBoundary {
     }
 }
 
-if ($env:OS -ne 'Windows_NT') { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
 New-Item -ItemType Directory -Force -Path $ResultDir, $GateDir, $LogDir, $Downloads | Out-Null
 if (Test-Path $CargoTarget) { Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path $ProofBooks) { Remove-Item $ProofBooks -Recurse -Force -ErrorAction SilentlyContinue }
