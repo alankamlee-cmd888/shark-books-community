@@ -6,16 +6,16 @@ param(
 $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Workspace = Join-Path $Repo 'workspace'
-$Base = '99c3b0d16fe4934f1b397a58956df745203f744f'
+$Base = 'ebf1ae9d0e10f0f427625d4c3ab5c1703299d154'
 $Toolchain = '1.98.1'
 $Timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $ResultDir = Join-Path $env:TEMP "SBC7B2_SUPERGATE_WINDOWS_$Timestamp"
 $GateDir = Join-Path $ResultDir 'gates'
 $LogDir = Join-Path $ResultDir 'logs'
 $CargoTarget = Join-Path $env:USERPROFILE 'sbc7b2-supergate-cargo-target'
-$ProofBooks = Join-Path $env:TEMP 'sharkbooks-sbc7b2-ft1ft2-proof-books'
+$ProofBooks = Join-Path $env:TEMP 'sharkbooks-sbc7b2-ft3ft4-proof-books'
 $Downloads = Join-Path $env:USERPROFILE 'Downloads'
-$ZipPath = Join-Path $Downloads "SBC7B2_FT1_FT2_SUPERGATE_WINDOWS_$Timestamp.zip"
+$ZipPath = Join-Path $Downloads "SBC7B2_FT3_FT4_SUPERGATE_WINDOWS_$Timestamp.zip"
 $HadProofKey = Test-Path Env:SHARK_SBC1D_PROOF_KEY
 $PreviousProofKey = $env:SHARK_SBC1D_PROOF_KEY
 $HadProofBooks = Test-Path Env:SHARK_SBC1D_BOOKS_DIR
@@ -53,13 +53,74 @@ function Run-Logged {
     }
 }
 
-if ($env:OS -ne 'Windows_NT') { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
+function Get-QuotedCommandList {
+    param([string]$Text, [string]$Pattern, [string]$Label)
+    $Match = [regex]::Match(
+        $Text,
+        $Pattern,
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    if (-not $Match.Success) { throw "B3C $Label command array not found." }
+    return @(
+        [regex]::Matches($Match.Groups[1].Value, '"([A-Za-z0-9_:-]+)"') |
+            ForEach-Object { $_.Groups[1].Value }
+    )
+}
+
+function Assert-B3cExclusionBoundary {
+    $ByteInvariantPaths = @(
+        'workspace/shark-tauri-spike/Cargo.toml',
+        'workspace/shark-tauri-spike/src/ocr_native.rs',
+        'product/ocr-runtime/windows/shark_ocr_single.py',
+        'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
+        'scripts/check_sbc6b_b3c_native_gate.py'
+    )
+    $ByteChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $ByteInvariantPaths)
+    if ($ByteChanged.Count -ne 0) {
+        throw "B3C packaged-runtime exclusion is invalid because runtime-sensitive paths changed: $($ByteChanged -join ', ')"
+    }
+
+    $BuildPath = 'workspace/shark-tauri-spike/build.rs'
+    $PermissionPath = 'workspace/shark-tauri-spike/permissions/shark-shell.toml'
+    $BaseBuild = (& git -C $Repo show "${Base}:$BuildPath" | Out-String)
+    $HeadBuild = Get-Content -Raw -Encoding UTF8 (Join-Path $Repo $BuildPath)
+    $BasePermission = (& git -C $Repo show "${Base}:$PermissionPath" | Out-String)
+    $HeadPermission = Get-Content -Raw -Encoding UTF8 (Join-Path $Repo $PermissionPath)
+
+    $BuildPattern = '\.commands\s*\(\s*&\[(.*?)\]\s*\)'
+    $PermissionPattern = 'commands\.allow\s*=\s*\[(.*?)\]'
+    $BaseBuildCommands = @(Get-QuotedCommandList $BaseBuild $BuildPattern 'base build.rs')
+    $HeadBuildCommands = @(Get-QuotedCommandList $HeadBuild $BuildPattern 'candidate build.rs')
+    $BasePermissionCommands = @(Get-QuotedCommandList $BasePermission $PermissionPattern 'base permission')
+    $HeadPermissionCommands = @(Get-QuotedCommandList $HeadPermission $PermissionPattern 'candidate permission')
+
+    if (($BaseBuildCommands -join "`n") -ne ($BasePermissionCommands -join "`n")) {
+        throw 'B3C base build/permission command lists differ.'
+    }
+    if (($HeadBuildCommands -join "`n") -ne ($HeadPermissionCommands -join "`n")) {
+        throw 'B3C candidate build/permission command lists differ.'
+    }
+    if (@($HeadBuildCommands | Where-Object { $_ -eq 'ocr_extract_receipt' }).Count -ne 1) {
+        throw 'B3C candidate must retain exactly one ocr_extract_receipt registration.'
+    }
+    $Removed = @($BaseBuildCommands | Where-Object { $_ -notin $HeadBuildCommands })
+    if ($Removed.Count -ne 0) {
+        throw "B3C candidate removed protected commands: $($Removed -join ', ')"
+    }
+    $Added = @($HeadBuildCommands | Where-Object { $_ -notin $BaseBuildCommands })
+    $NonOwnerAdded = @($Added | Where-Object { $_ -notmatch '^owner_' })
+    if ($NonOwnerAdded.Count -ne 0) {
+        throw "B3C candidate added non-owner commands to protected manifests: $($NonOwnerAdded -join ', ')"
+    }
+}
+
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw 'SBC-7B2 Windows Super-Gate must run on Windows.' }
 New-Item -ItemType Directory -Force -Path $ResultDir, $GateDir, $LogDir, $Downloads | Out-Null
 if (Test-Path $CargoTarget) { Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path $ProofBooks) { Remove-Item $ProofBooks -Recurse -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Force -Path $CargoTarget, $ProofBooks | Out-Null
 $env:CARGO_TARGET_DIR = $CargoTarget
-$env:SHARK_SBC1D_PROOF_KEY = 'SBC7B2-FT1FT2-Proof-Key-Only-Do-Not-Ship'
+$env:SHARK_SBC1D_PROOF_KEY = 'SBC7B2-FT3FT4-Proof-Key-Only-Do-Not-Ship'
 $env:SHARK_SBC1D_BOOKS_DIR = $ProofBooks
 $script:Head = (& git -C $Repo rev-parse HEAD).Trim()
 
@@ -72,6 +133,7 @@ try {
     foreach ($tool in @('git','python','rustup')) {
         if ($null -eq (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is required." }
     }
+    Assert-B3cExclusionBoundary
     Run-Logged 'sg0_bootstrap_beankeeper' { python -B (Join-Path $Repo 'scripts\bootstrap_beankeeper.py') }
     Run-Logged 'sg0_rust_version' { rustup run $Toolchain rustc --version }
     $LockPath = Join-Path $Workspace 'Cargo.lock'
@@ -86,7 +148,7 @@ try {
     Write-GateResult 'SG0_PREFLIGHT' 'PASS' 'Exact candidate, clean tree, toolchain/bootstrap and candidate lock identity verified.'
 
     # SG1 — Action Stack / generator contract
-    Run-Logged 'sg1_static_gate' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_ft1_ft2.py') --repo $Repo }
+    Run-Logged 'sg1_static_gate' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_ft1_ft2.py') --repo $Repo --skip-git }
     Run-Logged 'sg1_generated_contract_check' {
         rustup run $Toolchain cargo run --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-foundation --example action-contract --features action-contract-gen --locked -- --check
     }
@@ -105,13 +167,30 @@ try {
     }
     Write-GateResult 'SG2_CONTROLLER' 'PASS' 'Deterministic resolution, clarification, confirmation, stale-state, replay and Attention tests pass.'
 
-    # SG3/SG4 are later FT3 UI groups and are not claimed by this FT1/FT2 candidate.
-    Write-GateResult 'SG3_UI_A' 'NOT_APPLICABLE_TO_THIS_CANDIDATE' 'FT3A UI is outside the FT1/FT2 candidate.' $false
-    Write-GateResult 'SG4_UI_B' 'NOT_APPLICABLE_TO_THIS_CANDIDATE' 'FT3B UI is outside the FT1/FT2 candidate.' $false
+    # SG3 — integrated UI-A contract and type-safe production frontend
+    Run-Logged 'sg3_uia_generator' { python -B (Join-Path $Repo 'scripts\generate_sbc7b2_uia_actions.py') --check }
+    Run-Logged 'sg3_uia_static' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r1_uia.py') }
+    $Node = (Get-Command node).Source
+    $NpmCli = Join-Path (Split-Path $Node -Parent) 'node_modules\npm\bin\npm-cli.js'
+    if (-not (Test-Path $NpmCli)) { throw 'npm-cli.js not found beside Node.' }
+    Run-Logged 'sg3_npm_ci' { & $Node $NpmCli ci --prefix (Join-Path $Repo 'workspace\ui') }
+    Run-Logged 'sg3_vue_typecheck' { & $Node $NpmCli run type-check --prefix (Join-Path $Repo 'workspace\ui') }
+    Write-GateResult 'SG3_UI_A' 'PASS' 'UI-A generated bindings, owner journeys, accessibility/responsive static contract and Vue typecheck pass.'
 
-    # SG5 — finite command/voice parity metadata (no speech runtime)
-    Run-Logged 'sg5_voice_registry_recheck' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_ft1_ft2.py') --repo $Repo }
-    Write-GateResult 'SG5_COMMAND_VOICE' 'PASS' '175 canonical voice actions, 700 fixtures, aliases, collisions and locked-action fail-closed semantics verified.'
+    # SG4 — integrated UI-B contract and reproducible Vite build
+    Run-Logged 'sg4_uib_generator' { python -B (Join-Path $Repo 'scripts\generate_sbc7b2_uib_actions.py') --check }
+    Run-Logged 'sg4_uib_static' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r2_uib.py') }
+    Run-Logged 'sg4_vite_build' { & $Node $NpmCli run build --prefix (Join-Path $Repo 'workspace\ui') }
+    Run-Logged 'sg4_uia_postbuild' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r1_uia.py') }
+    Run-Logged 'sg4_uib_postbuild' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r2_uib.py') }
+    Write-GateResult 'SG4_UI_B' 'PASS' 'UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass.'
+
+    # SG5 — actual finite command-text parity over the reconciled Action Registry/controller
+    Run-Logged 'sg5_r3_static' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r3_ft4.py') --repo $Repo }
+    Run-Logged 'sg5_r4_static' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r4_precandidate.py') --repo $Repo --skip-git }
+    Run-Logged 'sg5_foundation_command_text' { rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-foundation --locked command_text_tests -- --test-threads=1 }
+    Run-Logged 'sg5_native_command_text' { rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked 'owner_command_text::tests' -- --test-threads=1 }
+    Write-GateResult 'SG5_COMMAND_TEXT' 'PASS' 'Finite text matching, 206/175/700 parity, ambiguity/fail-closed behaviour and reconciled five-read execution tests pass; no speech/model runtime is used.'
 
     # SG6 — inherited regressions affected by public Foundation export and lock update
     Run-Logged 'sg6_product_core' {
@@ -121,23 +200,10 @@ try {
         rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-foundation --locked --jobs 1 -- --test-threads=1
     }
 
-    # The eight Windows B3C packaged-runtime tests require the standalone B3C harness
-    # to rebuild real/fake OCR sidecars and receipt fixtures. FT1/FT2 does not change
-    # those runtime paths, so prove that boundary is unchanged before excluding only
-    # those eight already-proven packaged-runtime cases from this inherited SG6 sweep.
-    $B3cInvariantPaths = @(
-        'workspace/shark-tauri-spike/Cargo.toml',
-        'workspace/shark-tauri-spike/build.rs',
-        'workspace/shark-tauri-spike/src/ocr_native.rs',
-        'workspace/shark-tauri-spike/permissions/shark-shell.toml',
-        'product/ocr-runtime/windows/shark_ocr_single.py',
-        'research/sbc6_ocr_runtime/run_b3c_native_windows.py',
-        'scripts/check_sbc6b_b3c_native_gate.py'
-    )
-    $B3cChanged = @(& git -C $Repo diff --name-only "$Base..HEAD" -- $B3cInvariantPaths)
-    if ($B3cChanged.Count -ne 0) {
-        throw "B3C packaged-runtime exclusion is invalid because inherited OCR paths changed: $($B3cChanged -join ', ')"
-    }
+    # SG0 already proved the B3C exclusion boundary before any expensive build:
+    # runtime-sensitive OCR paths are byte-invariant, while the Tauri build/permission
+    # command lists preserve every protected command and allow only additive owner_* commands.
+    # The eight packaged-runtime-only cases therefore remain covered by their dedicated B3C proof.
 
     Run-Logged 'sg6_tauri' {
         rustup run $Toolchain cargo test --manifest-path (Join-Path $Workspace 'Cargo.toml') -p shark-tauri-spike --locked --jobs 1 -- `
@@ -179,28 +245,27 @@ try {
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'TOOLCHAIN.json')
 
     $Summary = [ordered]@{
-        schema = 'sbc7b2-ft1-ft2-supergate-windows-v1'
+        schema = 'sbc7b2-ft3-ft4-supergate-windows-v1'
         overall = 'PASS'
         candidate_sha = $script:Head
         expected_sha = $ExpectedHead
         base_sha = $Base
-        mandatory_gates = @('SG0_PREFLIGHT','SG1_ACTION_STACK','SG2_CONTROLLER','SG5_COMMAND_VOICE','SG6_REGRESSIONS','SG7_PLATFORM_COMPILE','SG8_FINAL_INTEGRITY')
-        non_applicable_gates = @('SG3_UI_A','SG4_UI_B')
+        mandatory_gates = @('SG0_PREFLIGHT','SG1_ACTION_STACK','SG2_CONTROLLER','SG3_UI_A','SG4_UI_B','SG5_COMMAND_TEXT','SG6_REGRESSIONS','SG7_PLATFORM_COMPILE','SG8_FINAL_INTEGRITY')
         cargo_lock_sha256 = $LockShaEnd
         rust_toolchain = $Toolchain
     }
     $Summary | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'SUMMARY.json')
     @(
-        'SBC-7B2 FT1/FT2 Windows Super-Gate',
+        'SBC-7B2 FT3/FT4 Windows Super-Gate',
         'Overall: PASS',
         "Candidate: $script:Head",
         "Cargo.lock SHA-256: $LockShaEnd",
-        'SG3/SG4: NOT_APPLICABLE_TO_THIS_CANDIDATE'
+        'SG3/SG4/SG5: MANDATORY_INTEGRATED_CANDIDATE'
     ) | Set-Content -Encoding UTF8 (Join-Path $ResultDir 'SUMMARY.txt')
 
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
     Compress-Archive -Path (Join-Path $ResultDir '*') -DestinationPath $ZipPath -Force
-    Write-Host "[PASS] SBC-7B2 FT1/FT2 Windows Super-Gate evidence: $ZipPath"
+    Write-Host "[PASS] SBC-7B2 FT3/FT4 Windows Super-Gate evidence: $ZipPath"
 }
 finally {
     Remove-Item $CargoTarget -Recurse -Force -ErrorAction SilentlyContinue

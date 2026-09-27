@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Shark Books Community \u2014 SBC-1D Windows Shell",
+        "title": "Shark Books Community — SBC-1D Windows Shell",
         "width": 760,
         "height": 620,
         "resizable": true
@@ -22,7 +22,9 @@
         "default-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost",
         "script-src": "'self'",
-        "style-src": "'self'"
+        "style-src": "'self'",
+        "img-src": "'self' blob:",
+        "frame-src": "'self' blob:"
       },
       "capabilities": [
         "windows-main"

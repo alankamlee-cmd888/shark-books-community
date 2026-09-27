@@ -22,16 +22,17 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod action_system;
 mod bank_application;
 mod contact_application;
 mod document_application;
 mod mutation_audit_application;
-pub mod action_system;
+mod owner_read_application;
 pub use bank_application::{
-    BankActivityPersistKind, BankActivityPersistOutcome, BankActivityView, BankActivityWrite,
-    BankMatchPersistOutcome, BankMatchView, BankMatchWrite, BankReconciliationEntryWrite,
-    BankReconciliationPersistOutcome, BankReconciliationRecord, BankReconciliationView,
-    BankReconciliationWrite,
+    BankActivityPersistKind, BankActivityPersistOutcome, BankActivityReviewKind,
+    BankActivityReviewOutcome, BankActivityView, BankActivityWrite, BankMatchPersistOutcome,
+    BankMatchView, BankMatchWrite, BankReconciliationEntryWrite, BankReconciliationPersistOutcome,
+    BankReconciliationRecord, BankReconciliationView, BankReconciliationWrite,
 };
 pub use contact_application::{ContactPersistOutcome, ContactView, ContactWrite};
 pub use document_application::{
@@ -41,6 +42,9 @@ pub use document_application::{
 pub use mutation_audit_application::{
     OwnerCorrectionPersistOutcome, OwnerCorrectionView, OwnerCorrectionWrite,
     ReceiptBankDecisionPersistOutcome, ReceiptBankDecisionView, ReceiptBankDecisionWrite,
+};
+pub use owner_read_application::{
+    OwnerCorrectionRead, OwnerDocumentRead, OwnerMoneyRecordDetailRead, OwnerMoneyRecordRead,
 };
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
@@ -241,8 +245,7 @@ impl BackupBeforeMigrationHook for SiblingEncryptedBackup {
             ));
         }
 
-        let (backup_path, reused_existing_snapshot) =
-            self.reusable_or_next_backup_path(path)?;
+        let (backup_path, reused_existing_snapshot) = self.reusable_or_next_backup_path(path)?;
 
         if reused_existing_snapshot {
             return Ok(BackupReceipt {
@@ -448,9 +451,7 @@ impl Books {
                 return Err(map_cli_error(error));
             }
         };
-        if let Err(error) =
-            db::create_company(db.conn(), books_id.as_str(), company_name, None)
-        {
+        if let Err(error) = db::create_company(db.conn(), books_id.as_str(), company_name, None) {
             drop(db);
             remove_sqlite_artifacts(path);
             return Err(map_cli_error(error));
@@ -644,7 +645,8 @@ impl Books {
         let rows = db::list_transactions(self.db.conn(), &params).map_err(map_cli_error)?;
         rows.into_iter()
             .map(|txn| {
-                let entries = db::get_entries_for_transaction(self.db.conn(), txn.id).map_err(map_cli_error)?;
+                let entries = db::get_entries_for_transaction(self.db.conn(), txn.id)
+                    .map_err(map_cli_error)?;
                 Ok(TransactionView {
                     id: txn.id,
                     description: txn.description,
@@ -668,7 +670,8 @@ impl Books {
 
     pub fn transaction(&self, transaction_id: i64) -> FoundationResult<TransactionView> {
         let (txn, entries) =
-            db::get_transaction(self.db.conn(), &self.company_slug, transaction_id).map_err(map_cli_error)?;
+            db::get_transaction(self.db.conn(), &self.company_slug, transaction_id)
+                .map_err(map_cli_error)?;
         Ok(TransactionView {
             id: txn.id,
             description: txn.description,
@@ -689,9 +692,8 @@ impl Books {
     }
 
     pub fn trial_balance(&self) -> FoundationResult<TrialBalance> {
-        let rows =
-            db::compute_trial_balance(self.db.conn(), &self.company_slug, None, None, None)
-                .map_err(map_cli_error)?;
+        let rows = db::compute_trial_balance(self.db.conn(), &self.company_slug, None, None, None)
+            .map_err(map_cli_error)?;
         let total_debits = rows.iter().try_fold(0_i64, |total, row| {
             total.checked_add(row.debit_total).ok_or_else(|| {
                 FoundationError::new(
@@ -752,14 +754,12 @@ impl Books {
             },
             command: Command::Verify,
         };
-        let file_str = file
-            .to_str()
-            .ok_or_else(|| {
-                FoundationError::new(
-                    FoundationErrorCode::InvalidInput,
-                    "OFX fixture path is not valid UTF-8",
-                )
-            })?;
+        let file_str = file.to_str().ok_or_else(|| {
+            FoundationError::new(
+                FoundationErrorCode::InvalidInput,
+                "OFX fixture path is not valid UTF-8",
+            )
+        })?;
         run_import_ofx(
             &cli,
             &self.db,
@@ -781,8 +781,7 @@ impl Books {
         bank_account: &str,
         suspense_account: &str,
     ) -> FoundationResult<ImportSummary> {
-        let (before_count, after_count) =
-            self.import_ofx(file, bank_account, suspense_account)?;
+        let (before_count, after_count) = self.import_ofx(file, bank_account, suspense_account)?;
         Ok(ImportSummary {
             before_count,
             after_count,
@@ -790,11 +789,7 @@ impl Books {
         })
     }
 
-    pub fn set_reconciled(
-        &self,
-        transaction_id: i64,
-        entry_id: i64,
-    ) -> FoundationResult<String> {
+    pub fn set_reconciled(&self, transaction_id: i64, entry_id: i64) -> FoundationResult<String> {
         let prior = db::set_entry_status(
             self.db.conn(),
             &self.actor,
@@ -852,9 +847,7 @@ impl Books {
             .file_name()
             .map(|n| format!("attachments/{}", n.to_string_lossy()))
             .unwrap_or_else(|| stored_path.to_string_lossy().to_string());
-        let original_filename = source
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string());
+        let original_filename = source.file_name().map(|n| n.to_string_lossy().to_string());
 
         let params = StoreAttachmentParams {
             transaction_id,
@@ -866,7 +859,8 @@ impl Books {
             original_filename: original_filename.as_deref(),
         };
         let id = db::store_attachment(self.db.conn(), &params).map_err(map_cli_error)?;
-        let row = db::get_attachment(self.db.conn(), &self.company_slug, id).map_err(map_cli_error)?;
+        let row =
+            db::get_attachment(self.db.conn(), &self.company_slug, id).map_err(map_cli_error)?;
         Ok(AttachmentView {
             id: row.id,
             uri: row.uri,
@@ -877,8 +871,8 @@ impl Books {
     }
 
     pub fn attachments(&self, transaction_id: i64) -> FoundationResult<Vec<AttachmentView>> {
-        let rows =
-            db::list_attachments(self.db.conn(), &self.company_slug, transaction_id).map_err(map_cli_error)?;
+        let rows = db::list_attachments(self.db.conn(), &self.company_slug, transaction_id)
+            .map_err(map_cli_error)?;
         Ok(rows
             .into_iter()
             .map(|row| AttachmentView {
@@ -955,10 +949,7 @@ fn persistent_sqlite_snapshot_matches(source: &Path, backup: &Path) -> Foundatio
     for suffix in ["-wal", "-journal"] {
         let source_companion = sqlite_companion_path(source, suffix);
         let backup_companion = sqlite_companion_path(backup, suffix);
-        match (
-            source_companion.is_file(),
-            backup_companion.is_file(),
-        ) {
+        match (source_companion.is_file(), backup_companion.is_file()) {
             (false, false) => {}
             (true, true) => {
                 if file_digest(&source_companion)? != file_digest(&backup_companion)? {
@@ -998,15 +989,9 @@ fn map_cli_error(error: CliError) -> FoundationError {
         CliError::Validation(message) => {
             FoundationError::new(FoundationErrorCode::Validation, message)
         }
-        CliError::Database(message) => {
-            FoundationError::new(FoundationErrorCode::Storage, message)
-        }
-        CliError::NotFound(message) => {
-            FoundationError::new(FoundationErrorCode::NotFound, message)
-        }
-        CliError::General(message) => {
-            FoundationError::new(FoundationErrorCode::Internal, message)
-        }
+        CliError::Database(message) => FoundationError::new(FoundationErrorCode::Storage, message),
+        CliError::NotFound(message) => FoundationError::new(FoundationErrorCode::NotFound, message),
+        CliError::General(message) => FoundationError::new(FoundationErrorCode::Internal, message),
         CliError::Unimplemented(message) => {
             FoundationError::new(FoundationErrorCode::Unsupported, message)
         }
@@ -1051,18 +1036,42 @@ mod tests {
         let books = Books::create_plain_for_test(&path, "overflow-books", "Overflow", "owner")
             .expect("test books");
         for code in ["1000", "1010", "4000", "4100"] {
-            books.create_account(code, code, if code.starts_with('1') { "asset" } else { "revenue" })
+            books
+                .create_account(
+                    code,
+                    code,
+                    if code.starts_with('1') {
+                        "asset"
+                    } else {
+                        "revenue"
+                    },
+                )
                 .expect("test account");
         }
         for (debit, credit, amount) in [("1000", "4000", i64::MAX), ("1010", "4100", 1)] {
-            books.post(&PostTransactionRequest {
-                description: "Total boundary".into(), date: "2026-09-14".into(),
-                currency_code: "GBP".into(), reference: None, metadata: None,
-                lines: vec![
-                    PostingLine { account_code: debit.into(), direction: Direction::Debit, amount_minor: amount, memo: None },
-                    PostingLine { account_code: credit.into(), direction: Direction::Credit, amount_minor: amount, memo: None },
-                ],
-            }).expect("individually valid balanced transaction");
+            books
+                .post(&PostTransactionRequest {
+                    description: "Total boundary".into(),
+                    date: "2026-09-14".into(),
+                    currency_code: "GBP".into(),
+                    reference: None,
+                    metadata: None,
+                    lines: vec![
+                        PostingLine {
+                            account_code: debit.into(),
+                            direction: Direction::Debit,
+                            amount_minor: amount,
+                            memo: None,
+                        },
+                        PostingLine {
+                            account_code: credit.into(),
+                            direction: Direction::Credit,
+                            amount_minor: amount,
+                            memo: None,
+                        },
+                    ],
+                })
+                .expect("individually valid balanced transaction");
             if amount == i64::MAX {
                 let at_limit = books.trial_balance().expect("exact i64 maximum is valid");
                 assert_eq!(at_limit.total_debits, i64::MAX);
@@ -1074,7 +1083,13 @@ mod tests {
         assert_eq!(debit_error.code, FoundationErrorCode::Validation);
         assert_eq!(debit_error.message, "trial balance debit total overflow");
         // A deliberately inconsistent test fixture isolates the credit-only overflow branch.
-        books.db.conn().execute("UPDATE entries SET direction = 'credit' WHERE direction = 'debit'", [])
+        books
+            .db
+            .conn()
+            .execute(
+                "UPDATE entries SET direction = 'credit' WHERE direction = 'debit'",
+                [],
+            )
             .expect("credit-only overflow fixture");
         let credit_error = books.trial_balance().unwrap_err();
         assert_eq!(credit_error.code, FoundationErrorCode::Validation);
@@ -1122,8 +1137,8 @@ mod tests {
     #[test]
     fn metadata_is_shark_owned_and_versioned() {
         let path = temp_db_path("metadata");
-        let books =
-            Books::create_plain_for_test(&path, "test-books", "Test Books", "test").expect("create books");
+        let books = Books::create_plain_for_test(&path, "test-books", "Test Books", "test")
+            .expect("create books");
         let metadata = books.metadata().expect("metadata");
         assert_eq!(metadata.books_id.as_str(), "test-books");
         assert_eq!(metadata.company_slug, "test-books");
@@ -1155,8 +1170,8 @@ mod tests {
     #[test]
     fn unbalanced_post_is_rejected_before_database_mutation() {
         let path = temp_db_path("unbalanced");
-        let books =
-            Books::create_plain_for_test(&path, "test-books", "Test Books", "test").expect("create books");
+        let books = Books::create_plain_for_test(&path, "test-books", "Test Books", "test")
+            .expect("create books");
         books
             .create_account("1000", "Cash", "asset")
             .expect("create cash account");
@@ -1180,7 +1195,10 @@ mod tests {
         assert_eq!(error.code, FoundationErrorCode::Validation);
 
         let after = books.count_transactions().expect("count after");
-        assert_eq!(before, after, "rejected post must not mutate transaction count");
+        assert_eq!(
+            before, after,
+            "rejected post must not mutate transaction count"
+        );
         drop(books);
         let _ = fs::remove_file(path);
     }
@@ -1224,14 +1242,9 @@ mod tests {
         let provider = TestKeyProvider::new("correct-test-key");
         let backup = SiblingEncryptedBackup;
 
-        let books = Books::create_encrypted(
-            &path,
-            &books_id,
-            "Encrypted Test Books",
-            "test",
-            &provider,
-        )
-        .expect("create encrypted books");
+        let books =
+            Books::create_encrypted(&path, &books_id, "Encrypted Test Books", "test", &provider)
+                .expect("create encrypted books");
         books
             .create_account("1000", "Cash", "asset")
             .expect("create account");
@@ -1240,7 +1253,10 @@ mod tests {
             BEANKEEPER_DATABASE_SCHEMA_VERSION
         );
         assert_eq!(
-            books.metadata().expect("metadata").application_schema_version,
+            books
+                .metadata()
+                .expect("metadata")
+                .application_schema_version,
             5
         );
         drop(books);
@@ -1256,13 +1272,19 @@ mod tests {
             .expect("reopen encrypted books");
         assert_eq!(reopened.books_id(), books_id);
         assert_eq!(
-            reopened.metadata().expect("reopened metadata").application_schema_version,
+            reopened
+                .metadata()
+                .expect("reopened metadata")
+                .application_schema_version,
             5
         );
         drop(reopened);
 
         let backup_path = backup.backup_path_for(&path);
-        assert!(backup_path.is_file(), "pre-open encrypted backup must exist");
+        assert!(
+            backup_path.is_file(),
+            "pre-open encrypted backup must exist"
+        );
         assert_eq!(file_sha256(&backup_path), before_hash);
 
         remove_sqlite_artifacts(&backup_path);
@@ -1287,7 +1309,10 @@ mod tests {
         books
             .db
             .conn()
-            .execute("UPDATE shark_application_meta SET schema_version = 2 WHERE id = 1", [])
+            .execute(
+                "UPDATE shark_application_meta SET schema_version = 2 WHERE id = 1",
+                [],
+            )
             .expect("simulate application schema v2");
         drop(books);
         let before_hash = file_sha256(&path);
@@ -1390,9 +1415,8 @@ mod tests {
         let wrong = TestKeyProvider::new("wrong-test-key");
         let backup = SiblingEncryptedBackup;
 
-        let books =
-            Books::create_encrypted(&path, &books_id, "Wrong Key Test", "test", &correct)
-                .expect("create encrypted books");
+        let books = Books::create_encrypted(&path, &books_id, "Wrong Key Test", "test", &correct)
+            .expect("create encrypted books");
         books
             .create_account("1000", "Cash", "asset")
             .expect("create account");
@@ -1412,7 +1436,10 @@ mod tests {
         );
 
         let backup_path = backup.backup_path_for(&path);
-        assert!(backup_path.is_file(), "backup must occur before attempted DB open");
+        assert!(
+            backup_path.is_file(),
+            "backup must occur before attempted DB open"
+        );
         assert_eq!(file_sha256(&backup_path), before_hash);
 
         let recovered = Books::open_encrypted(&path, &books_id, "test", &correct, &backup)

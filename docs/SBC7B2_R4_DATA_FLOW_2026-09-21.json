@@ -1,0 +1,48 @@
+{
+  "schema": "sbc7b2-r4-data-flow-v1",
+  "date": "2026-09-21",
+  "stage": "R4 integrated pre-candidate reconciliation",
+  "network_expansion": false,
+  "new_dependencies": [],
+  "new_permissions": [],
+  "public_release_change": false,
+  "new_off_device_data_recipients": [],
+  "new_credentials": [],
+  "new_storage_locations": [],
+  "affected_existing_local_flows": [
+    {
+      "action_id": "MONEY.RECORDS.LIST",
+      "data": "owner-safe bookkeeping record list",
+      "bridge": "owner_money_records_list"
+    },
+    {
+      "action_id": "MONEY.RECORD.DETAIL",
+      "data": "owner-safe bookkeeping record detail/evidence",
+      "bridge": "owner_money_record_detail"
+    },
+    {
+      "action_id": "BANK.ACTIVITY_DETAIL",
+      "data": "owner-safe imported bank activity detail",
+      "bridge": "owner_bank_activity_detail"
+    },
+    {
+      "action_id": "DOCUMENT.LIST",
+      "data": "registered document owner-safe metadata",
+      "bridge": "owner_document_list"
+    },
+    {
+      "action_id": "DOCUMENT.OPEN_VIEW",
+      "data": "bounded verified registered-document bytes for local view",
+      "bridge": "owner_document_open_view"
+    }
+  ],
+  "command_text_processing": {
+    "location": "local",
+    "mechanism": "finite deterministic Action Registry matching",
+    "remote_model": false
+  },
+  "release_boundary": {
+    "github_draft_pr_only": true,
+    "public_holding_page_unchanged": true
+  }
+}

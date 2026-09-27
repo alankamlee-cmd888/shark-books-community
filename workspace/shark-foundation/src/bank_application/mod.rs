@@ -51,6 +51,21 @@ pub struct BankActivityPersistOutcome {
     pub kind: BankActivityPersistKind,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BankActivityReviewKind {
+    New,
+    StrongDuplicate,
+    FileExactDuplicate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BankActivityReviewOutcome {
+    pub source_locator: String,
+    pub existing_activity_id: Option<i64>,
+    pub kind: BankActivityReviewKind,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BankActivityView {
     pub id: i64,
@@ -339,9 +354,9 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
         "#,
     );
     if let Err(error) = migration {
-        let _ = db
-            .conn()
-            .execute_batch("ROLLBACK TO shark_application_schema_v5; RELEASE shark_application_schema_v5");
+        let _ = db.conn().execute_batch(
+            "ROLLBACK TO shark_application_schema_v5; RELEASE shark_application_schema_v5",
+        );
         return Err(sqlite_error(error));
     }
     db.conn()

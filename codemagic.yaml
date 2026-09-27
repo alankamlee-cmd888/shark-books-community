@@ -310,8 +310,8 @@ workflows:
       - artifacts/SBC7B1_DATA_READMODELS_MAC_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC7B1_DATA_READMODELS_MAC_SUMMARY.*
 
-  sbc7b2-ft1-ft2-supergate-apple:
-    name: SBC-7B2 FT1 + FT2 Action System — Apple Super-Gate
+  sbc7b2-ft3-ft4-supergate-apple:
+    name: SBC-7B2 FT3 + FT4 Integrated App — Apple Super-Gate
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -330,11 +330,11 @@ workflows:
           export PATH="$HOME/.cargo/bin:$PATH"
           rustup --version
           cargo --version
-      - name: Run SBC-7B2 FT1/FT2 Mac/Apple Super-Gate
+      - name: Run SBC-7B2 FT3/FT4 Mac/Apple Super-Gate
         script: |
           export PATH="$HOME/.cargo/bin:$PATH"
           chmod +x "$CM_BUILD_DIR/ci/run_sbc7b2_supergate_codemagic.sh"
           bash "$CM_BUILD_DIR/ci/run_sbc7b2_supergate_codemagic.sh"
     artifacts:
-      - artifacts/SBC7B2_FT1_FT2_SUPERGATE_MAC_CODEMAGIC_RESULT_*.zip
-      - artifacts/SBC7B2_FT1_FT2_SUPERGATE_MAC_SUMMARY.*
+      - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_CODEMAGIC_RESULT_*.zip
+      - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_SUMMARY.*

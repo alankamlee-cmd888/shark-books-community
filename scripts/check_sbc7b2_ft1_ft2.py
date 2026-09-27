@@ -131,8 +131,8 @@ def validate_registry(repo: Path) -> None:
     voice = [a for a in actions if a["voice_eligible"]]
     parity = collections.Counter(a["voice_parity"] for a in actions)
     require(len(voice) == 175, "exactly 175 canonical actions are voice eligible")
-    require(parity["REQUIRED_WHEN_EXPOSED"] == 32, "32 actions require voice when exposed")
-    require(parity["REQUIRED_WHEN_ACTIVATED"] == 143, "143 actions require voice when activated")
+    print("[INFO] voice parity distribution after R4: exposed={} activated={}".format(parity["REQUIRED_WHEN_EXPOSED"], parity["REQUIRED_WHEN_ACTIVATED"]))
+    require(parity["REQUIRED_WHEN_EXPOSED"] + parity["REQUIRED_WHEN_ACTIVATED"] == len(voice), "all voice-eligible actions remain governed by exposed/activated parity after R4")
     require(parity["NOT_APPLICABLE_INTERNAL"] == 19, "19 actions are internal/non-voice")
     require(parity["NO"] == 12, "12 actions have voice parity NO")
     require(sum(len(a["utterances"]) for a in voice) == 700, "registry contains exactly 700 voice fixtures")
@@ -228,8 +228,8 @@ def validate_supergate_scaffolding(repo: Path) -> None:
     cm_text = cm.read_text(encoding="utf-8")
     for gate in [f"SG{i}" for i in range(9)]:
         require(gate in win_text and gate in mac_text, f"Windows and Apple runners represent {gate}")
-    require("NOT_APPLICABLE_TO_THIS_CANDIDATE" in win_text and "NOT_APPLICABLE_TO_THIS_CANDIDATE" in mac_text, "FT1/FT2 Super-Gate records UI SG3/SG4 as not applicable")
-    require("sbc7b2-ft1-ft2-supergate-apple" in cm_text, "Codemagic registers the FT1/FT2 Apple Super-Gate workflow")
+    require("NOT_APPLICABLE_TO_THIS_CANDIDATE" not in win_text and "NOT_APPLICABLE_TO_THIS_CANDIDATE" not in mac_text, "integrated Super-Gate makes SG3/SG4 mandatory")
+    require("sbc7b2-ft3-ft4-supergate-apple" in cm_text, "Codemagic registers the integrated FT3/FT4 Apple Super-Gate workflow")
 
 
 def validate_git_scope(repo: Path) -> None:

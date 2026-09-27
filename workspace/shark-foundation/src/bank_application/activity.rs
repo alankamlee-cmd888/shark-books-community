@@ -17,9 +17,10 @@ fn validate_canonical_identity_provenance(activity: &BankActivityWrite) -> Found
             if !activity.source_locator.starts_with("csv:row:") {
                 return Err(validation("CSV source locator is not canonical"));
             }
-            let strong = activity.external_transaction_id.as_ref().map(|id| {
-                format!("csv:GBP:{}:{id}", activity.source_account_id)
-            });
+            let strong = activity
+                .external_transaction_id
+                .as_ref()
+                .map(|id| format!("csv:GBP:{}:{id}", activity.source_account_id));
             let fingerprint = strong
                 .clone()
                 .unwrap_or_else(|| format!("sha256:{}", activity.raw_record_sha256));
@@ -37,9 +38,10 @@ fn validate_canonical_identity_provenance(activity: &BankActivityWrite) -> Found
             let institution = activity.institution_account_id.as_deref().ok_or_else(|| {
                 validation("OFX/QFX bank activity must preserve institution account id")
             })?;
-            let external = activity.external_transaction_id.as_deref().ok_or_else(|| {
-                validation("OFX/QFX bank activity must preserve FITID")
-            })?;
+            let external = activity
+                .external_transaction_id
+                .as_deref()
+                .ok_or_else(|| validation("OFX/QFX bank activity must preserve FITID"))?;
             if activity.provenance_label.is_some() {
                 return Err(validation(
                     "OFX/QFX bank activity must not invent a provenance label",
@@ -150,6 +152,108 @@ impl Books {
             )
             .map_err(sqlite_error)?;
         Ok(self.db.conn().last_insert_rowid())
+    }
+
+    pub fn review_bank_activity_batch(
+        &self,
+        activities: &[BankActivityWrite],
+    ) -> FoundationResult<Vec<BankActivityReviewOutcome>> {
+        ensure_application_schema(&self.db)?;
+        if activities.is_empty() {
+            return Err(validation(
+                "bank import review must contain at least one line",
+            ));
+        }
+        if activities.len() > MAX_ACTIVITY_BATCH {
+            return Err(validation(
+                "bank import review exceeds the 10000-line bound",
+            ));
+        }
+        for activity in activities {
+            validate_activity(activity)?;
+            validate_canonical_identity_provenance(activity)?;
+        }
+
+        let mut outcomes = Vec::with_capacity(activities.len());
+        let mut batch_strong = std::collections::HashMap::<String, BankActivityWrite>::new();
+        let mut batch_file_exact = std::collections::HashSet::<(String, String, String)>::new();
+
+        for activity in activities {
+            if let Some(strong) = activity.strong_identity_key.as_deref() {
+                if let Some((id, source_account, posted_date, amount, currency)) =
+                    self.strong_duplicate_row(strong)?
+                {
+                    if source_account != activity.source_account_id
+                        || posted_date != activity.posted_date
+                        || amount != activity.signed_amount_minor
+                        || currency != activity.currency_code
+                    {
+                        return Err(validation(format!(
+                            "strong bank identity '{strong}' conflicts with persisted accounting content"
+                        )));
+                    }
+                    outcomes.push(BankActivityReviewOutcome {
+                        source_locator: activity.source_locator.clone(),
+                        existing_activity_id: Some(id),
+                        kind: BankActivityReviewKind::StrongDuplicate,
+                    });
+                    continue;
+                }
+
+                if let Some(previous) = batch_strong.get(strong) {
+                    if previous.source_account_id != activity.source_account_id
+                        || previous.posted_date != activity.posted_date
+                        || previous.signed_amount_minor != activity.signed_amount_minor
+                        || previous.currency_code != activity.currency_code
+                    {
+                        return Err(validation(format!(
+                            "strong bank identity '{strong}' conflicts within the reviewed batch"
+                        )));
+                    }
+                    outcomes.push(BankActivityReviewOutcome {
+                        source_locator: activity.source_locator.clone(),
+                        existing_activity_id: None,
+                        kind: BankActivityReviewKind::StrongDuplicate,
+                    });
+                    continue;
+                }
+            }
+
+            if let Some(id) = self.file_exact_duplicate_id(activity)? {
+                outcomes.push(BankActivityReviewOutcome {
+                    source_locator: activity.source_locator.clone(),
+                    existing_activity_id: Some(id),
+                    kind: BankActivityReviewKind::FileExactDuplicate,
+                });
+                continue;
+            }
+
+            let file_key = (
+                activity.source_file_sha256.clone(),
+                activity.source_locator.clone(),
+                activity.raw_record_sha256.clone(),
+            );
+            if batch_file_exact.contains(&file_key) {
+                outcomes.push(BankActivityReviewOutcome {
+                    source_locator: activity.source_locator.clone(),
+                    existing_activity_id: None,
+                    kind: BankActivityReviewKind::FileExactDuplicate,
+                });
+                continue;
+            }
+
+            outcomes.push(BankActivityReviewOutcome {
+                source_locator: activity.source_locator.clone(),
+                existing_activity_id: None,
+                kind: BankActivityReviewKind::New,
+            });
+            if let Some(strong) = activity.strong_identity_key.clone() {
+                batch_strong.insert(strong, activity.clone());
+            }
+            batch_file_exact.insert(file_key);
+        }
+
+        Ok(outcomes)
     }
 
     pub fn persist_bank_activity_batch(
@@ -356,10 +460,14 @@ impl Books {
     ) -> FoundationResult<Vec<BankActivityView>> {
         ensure_application_schema(&self.db)?;
         if !(1..=MAX_ACTIVITY_PAGE).contains(&limit) {
-            return Err(validation("bank activity page limit must be between 1 and 500"));
+            return Err(validation(
+                "bank activity page limit must be between 1 and 500",
+            ));
         }
         if offset < 0 || offset > 1_000_000 {
-            return Err(validation("bank activity page offset is outside the supported range"));
+            return Err(validation(
+                "bank activity page offset is outside the supported range",
+            ));
         }
 
         let mut stmt = self

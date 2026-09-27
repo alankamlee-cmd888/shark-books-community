@@ -15,7 +15,7 @@ use shark_foundation::{
     BankReconciliationWrite, Books, FoundationError, TransactionView,
 };
 
-use super::{open_books_impl, OpenBooksRequest};
+use super::{OpenBooksRequest, open_books_impl};
 
 const OWNER_BANK_MUTATION_VERSION: u32 = 1;
 const BANK_ACCOUNT_CODE: &str = "1000";
@@ -102,7 +102,9 @@ impl From<OwnerMutationCsvDateFormat> for core::bank_import::CsvDateFormat {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) enum OwnerMutationCsvAmountMapping {
-    Signed { amount_header: String },
+    Signed {
+        amount_header: String,
+    },
     DebitCredit {
         debit_header: String,
         credit_header: String,
@@ -204,6 +206,13 @@ pub(crate) struct OwnerConfirmedBankLine {
     has_strong_source_identity: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OwnerConfirmedDuplicateReview {
+    line_ref: String,
+    outcome: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OwnerCsvImportConfirmRequest {
@@ -213,6 +222,7 @@ pub(crate) struct OwnerCsvImportConfirmRequest {
     profile: OwnerMutationCsvProfile,
     confirmed_statement_sha256: String,
     confirmed_lines: Vec<OwnerConfirmedBankLine>,
+    confirmed_duplicate_reviews: Vec<OwnerConfirmedDuplicateReview>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -224,6 +234,7 @@ pub(crate) struct OwnerOfxImportConfirmRequest {
     format: OwnerMutationOfxFormat,
     confirmed_statement_sha256: String,
     confirmed_lines: Vec<OwnerConfirmedBankLine>,
+    confirmed_duplicate_reviews: Vec<OwnerConfirmedDuplicateReview>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -352,6 +363,48 @@ fn confirm_current_preview(
     Ok(preview.lines().iter().map(bank_activity_write).collect())
 }
 
+fn duplicate_review_snapshot(
+    outcomes: Vec<shark_foundation::BankActivityReviewOutcome>,
+) -> Vec<OwnerConfirmedDuplicateReview> {
+    outcomes
+        .into_iter()
+        .map(|outcome| OwnerConfirmedDuplicateReview {
+            line_ref: outcome.source_locator,
+            outcome: match outcome.kind {
+                shark_foundation::BankActivityReviewKind::New => "new",
+                shark_foundation::BankActivityReviewKind::StrongDuplicate => "strongDuplicate",
+                shark_foundation::BankActivityReviewKind::FileExactDuplicate => {
+                    "fileExactDuplicate"
+                }
+            }
+            .to_string(),
+        })
+        .collect()
+}
+
+fn require_duplicate_review_match(
+    current: Vec<shark_foundation::BankActivityReviewOutcome>,
+    confirmed: &[OwnerConfirmedDuplicateReview],
+) -> OwnerBankMutationResult<()> {
+    if duplicate_review_snapshot(current) != confirmed {
+        return Err(OwnerBankMutationError::invalid(
+            "bank duplicate review changed after review; preview again before confirming",
+        ));
+    }
+    Ok(())
+}
+
+fn confirm_current_duplicate_review(
+    books: &Books,
+    writes: &[BankActivityWrite],
+    confirmed: &[OwnerConfirmedDuplicateReview],
+) -> OwnerBankMutationResult<()> {
+    let current = books
+        .review_bank_activity_batch(writes)
+        .map_err(OwnerBankMutationError::foundation)?;
+    require_duplicate_review_match(current, confirmed)
+}
+
 fn receipt_from_outcomes(
     outcomes: Vec<shark_foundation::BankActivityPersistOutcome>,
 ) -> OwnerBankImportReceipt {
@@ -402,6 +455,7 @@ pub(crate) fn owner_bank_import_confirm_csv(
         &preview,
     )?;
     let books = request.books.open()?;
+    confirm_current_duplicate_review(&books, &writes, &request.confirmed_duplicate_reviews)?;
     let outcomes = books
         .persist_bank_activity_batch(&writes)
         .map_err(OwnerBankMutationError::foundation)?;
@@ -426,6 +480,7 @@ pub(crate) fn owner_bank_import_confirm_ofx_qfx(
         &preview,
     )?;
     let books = request.books.open()?;
+    confirm_current_duplicate_review(&books, &writes, &request.confirmed_duplicate_reviews)?;
     let outcomes = books
         .persist_bank_activity_batch(&writes)
         .map_err(OwnerBankMutationError::foundation)?;
@@ -521,9 +576,7 @@ fn parse_date(value: &str) -> OwnerBankMutationResult<core::Date> {
         .and_then(|part| part.parse::<u8>().ok())
         .ok_or_else(|| OwnerBankMutationError::invalid("date must be YYYY-MM-DD"))?;
     if parts.next().is_some() || value.len() != 10 {
-        return Err(OwnerBankMutationError::invalid(
-            "date must be YYYY-MM-DD",
-        ));
+        return Err(OwnerBankMutationError::invalid("date must be YYYY-MM-DD"));
     }
     core::Date::new(year, month, day)
         .map_err(|error| OwnerBankMutationError::invalid(error.to_string()))
@@ -569,11 +622,7 @@ fn bank_line_from_persisted(
         activity.source_file_sha256.clone(),
         activity.source_locator.clone(),
         parse_date(&activity.posted_date)?,
-        activity
-            .value_date
-            .as_deref()
-            .map(parse_date)
-            .transpose()?,
+        activity.value_date.as_deref().map(parse_date).transpose()?,
         activity.signed_amount_minor,
         activity.description.clone(),
         activity.payee.clone(),
@@ -633,7 +682,7 @@ fn resolved_bank_entry(
         other => {
             return Err(OwnerBankMutationError::invalid(format!(
                 "unsupported Bank-entry direction '{other}'"
-            )))
+            )));
         }
     };
     Ok(ResolvedBankEntry {
@@ -796,7 +845,11 @@ pub(crate) fn owner_bank_match_confirm(
     let transactions = request
         .candidate_transaction_ids
         .iter()
-        .map(|id| books.transaction(*id).map_err(OwnerBankMutationError::foundation))
+        .map(|id| {
+            books
+                .transaction(*id)
+                .map_err(OwnerBankMutationError::foundation)
+        })
         .collect::<OwnerBankMutationResult<Vec<_>>>()?;
 
     let mut candidate_by_transaction = HashMap::<i64, core::matching::LedgerCandidate>::new();
@@ -840,12 +893,8 @@ pub(crate) fn owner_bank_match_confirm(
             "an unmatched candidate cannot be confirmed",
         ));
     }
-    core::matching::confirm_match(
-        selected_candidate,
-        assessment,
-        request.books.actor.clone(),
-    )
-    .map_err(OwnerBankMutationError::matching)?;
+    core::matching::confirm_match(selected_candidate, assessment, request.books.actor.clone())
+        .map_err(OwnerBankMutationError::matching)?;
 
     let selected_transaction = transactions
         .iter()
@@ -941,11 +990,23 @@ fn reconciliation_membership_equal(
 ) -> bool {
     let mut left_rows: Vec<_> = left
         .iter()
-        .map(|entry| (entry.transaction_id, entry.entry_id, entry.signed_amount_minor))
+        .map(|entry| {
+            (
+                entry.transaction_id,
+                entry.entry_id,
+                entry.signed_amount_minor,
+            )
+        })
         .collect();
     let mut right_rows: Vec<_> = right
         .iter()
-        .map(|entry| (entry.transaction_id, entry.entry_id, entry.signed_amount_minor))
+        .map(|entry| {
+            (
+                entry.transaction_id,
+                entry.entry_id,
+                entry.signed_amount_minor,
+            )
+        })
         .collect();
     left_rows.sort_unstable();
     right_rows.sort_unstable();
@@ -968,7 +1029,11 @@ pub(crate) fn owner_bank_reconcile_finalise(
     let transactions = request
         .transaction_ids
         .iter()
-        .map(|id| books.transaction(*id).map_err(OwnerBankMutationError::foundation))
+        .map(|id| {
+            books
+                .transaction(*id)
+                .map_err(OwnerBankMutationError::foundation)
+        })
         .collect::<OwnerBankMutationResult<Vec<_>>>()?;
     let write = reconciliation_write_from_transactions(
         &request.statement_id,
@@ -1139,8 +1204,55 @@ mod tests {
         };
         let reconstructed = bank_line_from_persisted(&persisted).expect("reconstruct");
         assert_eq!(reconstructed.source_locator(), line.source_locator());
-        assert_eq!(reconstructed.signed_amount_minor(), line.signed_amount_minor());
-        assert_eq!(reconstructed.strong_identity_key(), line.strong_identity_key());
+        assert_eq!(
+            reconstructed.signed_amount_minor(),
+            line.signed_amount_minor()
+        );
+        assert_eq!(
+            reconstructed.strong_identity_key(),
+            line.strong_identity_key()
+        );
+    }
+
+    #[test]
+    fn duplicate_review_snapshot_is_exact_and_owner_safe() {
+        let snapshot = duplicate_review_snapshot(vec![
+            shark_foundation::BankActivityReviewOutcome {
+                source_locator: "csv:row:1".to_string(),
+                existing_activity_id: None,
+                kind: shark_foundation::BankActivityReviewKind::New,
+            },
+            shark_foundation::BankActivityReviewOutcome {
+                source_locator: "csv:row:2".to_string(),
+                existing_activity_id: Some(9),
+                kind: shark_foundation::BankActivityReviewKind::StrongDuplicate,
+            },
+        ]);
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].line_ref, "csv:row:1");
+        assert_eq!(snapshot[0].outcome, "new");
+        assert_eq!(snapshot[1].outcome, "strongDuplicate");
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(!json.contains("existingActivityId"));
+        assert!(!json.contains("strongIdentity"));
+        assert!(!json.contains("sourceFileSha"));
+        assert!(!json.contains("rawRecordSha"));
+    }
+
+    #[test]
+    fn duplicate_review_mismatch_fails_closed() {
+        let confirmed = vec![OwnerConfirmedDuplicateReview {
+            line_ref: "csv:row:1".to_string(),
+            outcome: "new".to_string(),
+        }];
+        let changed = vec![shark_foundation::BankActivityReviewOutcome {
+            source_locator: "csv:row:1".to_string(),
+            existing_activity_id: Some(44),
+            kind: shark_foundation::BankActivityReviewKind::StrongDuplicate,
+        }];
+        let error = require_duplicate_review_match(changed, &confirmed)
+            .expect_err("changed duplicate review must fail closed");
+        assert!(error.message.contains("duplicate review changed"));
     }
 
     #[test]
@@ -1178,6 +1290,7 @@ mod tests {
             },
             "confirmedStatementSha256": "0".repeat(64),
             "confirmedLines": [],
+            "confirmedDuplicateReviews": [],
             "databasePath": "C:/outside.sqlite",
             "accountCode": "1000",
             "debit": 2500,

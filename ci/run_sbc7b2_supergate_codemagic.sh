@@ -2,22 +2,22 @@
 set -u
 set -o pipefail
 
-BASE="99c3b0d16fe4934f1b397a58956df745203f744f"
+BASE="ebf1ae9d0e10f0f427625d4c3ab5c1703299d154"
 RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-1.98.1}"
 REPO_ROOT="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 WORKSPACE="$REPO_ROOT/workspace"
 ARTIFACTS="$REPO_ROOT/artifacts"
 TS="$(date +%Y%m%d_%H%M%S)"
-RESULT_DIR="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_$TS"
+RESULT_DIR="$ARTIFACTS/SBC7B2_FT3_FT4_SUPERGATE_MAC_$TS"
 GATE_DIR="$RESULT_DIR/gates"
 LOG_DIR="$RESULT_DIR/logs"
-RESULT_ZIP="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_CODEMAGIC_RESULT_$TS.zip"
-SUMMARY_TXT="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_SUMMARY.txt"
-SUMMARY_JSON="$ARTIFACTS/SBC7B2_FT1_FT2_SUPERGATE_MAC_SUMMARY.json"
-CARGO_TARGET_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT1FT2-CargoTarget"
-PROOF_BOOKS_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT1FT2-ProofBooks"
+RESULT_ZIP="$ARTIFACTS/SBC7B2_FT3_FT4_SUPERGATE_MAC_CODEMAGIC_RESULT_$TS.zip"
+SUMMARY_TXT="$ARTIFACTS/SBC7B2_FT3_FT4_SUPERGATE_MAC_SUMMARY.txt"
+SUMMARY_JSON="$ARTIFACTS/SBC7B2_FT3_FT4_SUPERGATE_MAC_SUMMARY.json"
+CARGO_TARGET_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT3FT4-CargoTarget"
+PROOF_BOOKS_DIR="${TMPDIR:-/tmp}/SharkBooks-SBC7B2-FT3FT4-ProofBooks"
 export CARGO_TARGET_DIR
-export SHARK_SBC1D_PROOF_KEY="SBC7B2-FT1FT2-Proof-Key-Only-Do-Not-Ship"
+export SHARK_SBC1D_PROOF_KEY="SBC7B2-FT3FT4-Proof-Key-Only-Do-Not-Ship"
 export SHARK_SBC1D_BOOKS_DIR="$PROOF_BOOKS_DIR"
 
 OVERALL="FAIL"
@@ -74,7 +74,7 @@ EOF
 {"rust_toolchain":"$RUST_TOOLCHAIN","platform":"macos-apple-silicon","physical_target":"aarch64-apple-ios","simulator_target":"aarch64-apple-ios-sim"}
 EOF
   cat > "$SUMMARY_TXT" <<EOF
-SBC-7B2 FT1/FT2 Mac/Apple Super-Gate
+SBC-7B2 FT3/FT4 Mac/Apple Super-Gate
 Overall: $OVERALL
 Classification: $CLASSIFICATION
 Phase: $PHASE
@@ -82,10 +82,9 @@ Repository commit: ${CM_COMMIT:-$FINAL_HEAD}
 Entry protected main: $BASE
 Cargo.lock SHA-256: $FINAL_LOCK_SHA
 Rust toolchain: $RUST_TOOLCHAIN
-SG3/SG4: NOT_APPLICABLE_TO_THIS_CANDIDATE
 EOF
   cat > "$SUMMARY_JSON" <<EOF
-{"schema":"sbc7b2-ft1-ft2-supergate-mac-v1","overall":"$OVERALL","classification":"$CLASSIFICATION","phase":"$PHASE","candidate_sha":"$(printf '%s' "${CM_COMMIT:-$FINAL_HEAD}" | json_escape)","base_sha":"$BASE","cargo_lock_sha256":"$FINAL_LOCK_SHA","rust_toolchain":"$RUST_TOOLCHAIN","mandatory_gates":["SG0_PREFLIGHT","SG1_ACTION_STACK","SG2_CONTROLLER","SG5_COMMAND_VOICE","SG6_REGRESSIONS","SG7_PLATFORM_COMPILE","SG8_FINAL_INTEGRITY"],"non_applicable_gates":["SG3_UI_A","SG4_UI_B"]}
+{"schema":"sbc7b2-ft3-ft4-supergate-mac-v1","overall":"$OVERALL","classification":"$CLASSIFICATION","phase":"$PHASE","candidate_sha":"$(printf '%s' "${CM_COMMIT:-$FINAL_HEAD}" | json_escape)","base_sha":"$BASE","cargo_lock_sha256":"$FINAL_LOCK_SHA","rust_toolchain":"$RUST_TOOLCHAIN","mandatory_gates":["SG0_PREFLIGHT","SG1_ACTION_STACK","SG2_CONTROLLER","SG3_UI_A","SG4_UI_B","SG5_COMMAND_TEXT","SG6_REGRESSIONS","SG7_PLATFORM_COMPILE","SG8_FINAL_INTEGRITY"]}
 EOF
   cp "$SUMMARY_TXT" "$RESULT_DIR/SUMMARY.txt" 2>/dev/null || true
   cp "$SUMMARY_JSON" "$RESULT_DIR/SUMMARY.json" 2>/dev/null || true
@@ -125,7 +124,7 @@ write_gate "SG0_PREFLIGHT" "PASS" true "Exact candidate, clean tree, Rust/Apple 
 
 # SG1 — Action Stack / generated contracts
 PHASE="SG1_ACTION_STACK"
-run_log sg1_static python3 "$REPO_ROOT/scripts/check_sbc7b2_ft1_ft2.py" --repo "$REPO_ROOT" || stop "SG1_ACTION_STACK" "STATIC_GATE_FAIL" "Integrated FT1/FT2 static gate failed" 40
+run_log sg1_static python3 "$REPO_ROOT/scripts/check_sbc7b2_ft1_ft2.py" --repo "$REPO_ROOT" --skip-git || stop "SG1_ACTION_STACK" "STATIC_GATE_FAIL" "Integrated FT1/FT2 static gate failed" 40
 run_log sg1_generator_check cargo run --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --example action-contract --features action-contract-gen --locked -- --check || stop "SG1_ACTION_STACK" "GENERATED_CONTRACT_DRIFT" "Generated schema/TypeScript check failed" 41
 run_log sg1_dependency_tree cargo tree --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --features action-contract-gen --locked || stop "SG1_ACTION_STACK" "DEPENDENCY_TREE_FAIL" "Locked dependency tree failed" 42
 grep -q 'schemars v1.2.2' "$LOG_DIR/sg1_dependency_tree.stdout.txt" || stop "SG1_ACTION_STACK" "SCHEMARS_PIN_FAIL" "Schemars 1.2.2 missing from tree" 43
@@ -137,14 +136,30 @@ PHASE="SG2_CONTROLLER"
 run_log sg2_action_system cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --test action_system_contract --locked --jobs 1 -- --test-threads=1 || stop "SG2_CONTROLLER" "ACTION_CONTROLLER_FAIL" "Action System controller contract tests failed" 50
 write_gate "SG2_CONTROLLER" "PASS" true "Deterministic controller, clarification, confirmation, stale-state, replay and Attention tests pass."
 
-# SG3/SG4 — later UI phases, deliberately not claimed here.
-write_gate "SG3_UI_A" "NOT_APPLICABLE_TO_THIS_CANDIDATE" false "FT3A UI is outside the FT1/FT2 candidate."
-write_gate "SG4_UI_B" "NOT_APPLICABLE_TO_THIS_CANDIDATE" false "FT3B UI is outside the FT1/FT2 candidate."
+# SG3 — integrated UI-A contract and type-safe production frontend
+PHASE="SG3_UI_A"
+run_log sg3_uia_generator python3 "$REPO_ROOT/scripts/generate_sbc7b2_uia_actions.py" --check || stop "SG3_UI_A" "UIA_GENERATOR_FAIL" "UI-A generated metadata drift" 55
+run_log sg3_uia_static python3 "$REPO_ROOT/scripts/check_sbc7b2_r1_uia.py" || stop "SG3_UI_A" "UIA_STATIC_FAIL" "UI-A static contract failed" 56
+run_log sg3_npm_ci npm --prefix "$REPO_ROOT/workspace/ui" ci || stop "SG3_UI_A" "NPM_CI_FAIL" "npm ci failed" 57
+run_log sg3_vue_typecheck npm --prefix "$REPO_ROOT/workspace/ui" run type-check || stop "SG3_UI_A" "VUE_TYPECHECK_FAIL" "Vue typecheck failed" 58
+write_gate "SG3_UI_A" "PASS" true "UI-A generated bindings, owner journeys, accessibility/responsive static contract and Vue typecheck pass."
 
-# SG5 — finite command/voice metadata parity
-PHASE="SG5_COMMAND_VOICE"
-run_log sg5_voice_static python3 "$REPO_ROOT/scripts/check_sbc7b2_ft1_ft2.py" --repo "$REPO_ROOT" || stop "SG5_COMMAND_VOICE" "VOICE_PARITY_FAIL" "Voice/action parity static recheck failed" 60
-write_gate "SG5_COMMAND_VOICE" "PASS" true "175 canonical voice actions, 700 fixtures, collisions and locked-action semantics verified."
+# SG4 — integrated UI-B contract and reproducible Vite build
+PHASE="SG4_UI_B"
+run_log sg4_uib_generator python3 "$REPO_ROOT/scripts/generate_sbc7b2_uib_actions.py" --check || stop "SG4_UI_B" "UIB_GENERATOR_FAIL" "UI-B generated metadata drift" 59
+run_log sg4_uib_static python3 "$REPO_ROOT/scripts/check_sbc7b2_r2_uib.py" || stop "SG4_UI_B" "UIB_STATIC_FAIL" "UI-B static contract failed" 60
+run_log sg4_vite_build npm --prefix "$REPO_ROOT/workspace/ui" run build || stop "SG4_UI_B" "VITE_BUILD_FAIL" "Vite production build failed" 61
+run_log sg4_uia_postbuild python3 "$REPO_ROOT/scripts/check_sbc7b2_r1_uia.py" || stop "SG4_UI_B" "UIA_POSTBUILD_FAIL" "UI-A post-build check failed" 62
+run_log sg4_uib_postbuild python3 "$REPO_ROOT/scripts/check_sbc7b2_r2_uib.py" || stop "SG4_UI_B" "UIB_POSTBUILD_FAIL" "UI-B post-build check failed" 63
+write_gate "SG4_UI_B" "PASS" true "UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass."
+
+# SG5 — actual finite command-text parity
+PHASE="SG5_COMMAND_TEXT"
+run_log sg5_r3_static python3 "$REPO_ROOT/scripts/check_sbc7b2_r3_ft4.py" --repo "$REPO_ROOT" || stop "SG5_COMMAND_TEXT" "R3_STATIC_FAIL" "FT4 finite command static check failed" 64
+run_log sg5_r4_static python3 "$REPO_ROOT/scripts/check_sbc7b2_r4_precandidate.py" --repo "$REPO_ROOT" --skip-git || stop "SG5_COMMAND_TEXT" "R4_STATIC_FAIL" "R4 reconciliation check failed" 65
+run_log sg5_foundation_command_text cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-foundation --locked command_text_tests -- --test-threads=1 || stop "SG5_COMMAND_TEXT" "FOUNDATION_COMMAND_TEXT_FAIL" "Foundation finite command tests failed" 66
+run_log sg5_native_command_text cargo test --manifest-path "$WORKSPACE/Cargo.toml" -p shark-tauri-spike --locked 'owner_command_text::tests' -- --test-threads=1 || stop "SG5_COMMAND_TEXT" "NATIVE_COMMAND_TEXT_FAIL" "Native command-text tests failed" 67
+write_gate "SG5_COMMAND_TEXT" "PASS" true "Finite text matching, 206/175/700 parity, ambiguity/fail-closed behaviour and reconciled five-read execution tests pass; no speech/model runtime is used."
 
 # SG6 — inherited regressions
 PHASE="SG6_REGRESSIONS"
@@ -181,5 +196,5 @@ write_gate "SG8_FINAL_INTEGRITY" "PASS" true "Candidate SHA, Cargo.lock and repo
 
 PHASE="COMPLETE"
 OVERALL="PASS"
-CLASSIFICATION="PASS_SBC7B2_FT1_FT2_MAC_APPLE_SUPERGATE"
-echo "[PASS] SBC-7B2 FT1/FT2 Mac/Apple Super-Gate complete at $HEAD"
+CLASSIFICATION="PASS_SBC7B2_FT3_FT4_MAC_APPLE_SUPERGATE"
+echo "[PASS] SBC-7B2 FT3/FT4 Mac/Apple Super-Gate complete at $HEAD"

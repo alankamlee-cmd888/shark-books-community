@@ -20,7 +20,7 @@ use shark_foundation::{
 use tauri_plugin_dialog::DialogExt;
 
 use super::ocr_native::{self, NativeApprovedOcrDocument, NativeOcrRegistry, ShellOcrOutcome};
-use super::{open_books_impl, OpenBooksRequest};
+use super::{OpenBooksRequest, open_books_impl};
 
 const OWNER_DOCUMENT_BRIDGE_VERSION: u32 = 1;
 const MAX_SESSION_STORAGE_ROOTS: usize = 1024;
@@ -40,7 +40,10 @@ impl OwnerDocumentError {
     }
 
     fn invalid(message: impl Into<String>) -> Self {
-        Self { code: "invalidInput", message: message.into() }
+        Self {
+            code: "invalidInput",
+            message: message.into(),
+        }
     }
 
     fn foundation(error: FoundationError) -> Self {
@@ -49,22 +52,32 @@ impl OwnerDocumentError {
             FoundationErrorCode::InvalidInput | FoundationErrorCode::Validation => "invalidInput",
             _ => "booksOperationFailed",
         };
-        Self { code, message: error.to_string() }
+        Self {
+            code,
+            message: error.to_string(),
+        }
     }
 
     fn storage_root_not_configured() -> Self {
         Self {
             code: "storageRootNotConfigured",
-            message: "the selected user-controlled storage root is not configured on this device".to_string(),
+            message: "the selected user-controlled storage root is not configured on this device"
+                .to_string(),
         }
     }
 
     fn document(message: impl Into<String>) -> Self {
-        Self { code: "documentOperationFailed", message: message.into() }
+        Self {
+            code: "documentOperationFailed",
+            message: message.into(),
+        }
     }
 
     fn integrity(message: impl Into<String>) -> Self {
-        Self { code: "documentIntegrityFailed", message: message.into() }
+        Self {
+            code: "documentIntegrityFailed",
+            message: message.into(),
+        }
     }
 }
 
@@ -108,11 +121,16 @@ impl NativeDocumentRootRegistry {
                 "configured document storage root is not an existing directory",
             ));
         }
-        let canonical = fs::canonicalize(path)
-            .map_err(|error| OwnerDocumentError::document(format!("could not resolve document storage root: {error}")))?;
+        let canonical = fs::canonicalize(path).map_err(|error| {
+            OwnerDocumentError::document(format!(
+                "could not resolve document storage root: {error}"
+            ))
+        })?;
         self.roots
             .lock()
-            .map_err(|_| OwnerDocumentError::document("document storage-root registry is unavailable"))?
+            .map_err(|_| {
+                OwnerDocumentError::document("document storage-root registry is unavailable")
+            })?
             .insert(root_id, canonical);
         Ok(())
     }
@@ -124,24 +142,27 @@ impl NativeDocumentRootRegistry {
                 "selected storage root is not an existing directory",
             ));
         }
-        let canonical = fs::canonicalize(path).map_err(|_| {
-            OwnerDocumentError::document("could not resolve selected storage root")
-        })?;
+        let canonical = fs::canonicalize(path)
+            .map_err(|_| OwnerDocumentError::document("could not resolve selected storage root"))?;
         let mut roots = self.roots.lock().map_err(|_| {
             OwnerDocumentError::document("document storage-root registry is unavailable")
         })?;
-        if let Some(id) = roots.iter()
+        if let Some(id) = roots
+            .iter()
             .filter(|(id, root)| id.starts_with("storage-root-session-") && **root == canonical)
             .map(|(id, _)| id)
             .min()
         {
             return Ok(id.clone());
         }
-        let generated_count = roots.keys()
+        let generated_count = roots
+            .keys()
             .filter(|id| id.starts_with("storage-root-session-"))
             .count();
         if generated_count >= MAX_SESSION_STORAGE_ROOTS {
-            return Err(OwnerDocumentError::document("session storage-root capacity reached"));
+            return Err(OwnerDocumentError::document(
+                "session storage-root capacity reached",
+            ));
         }
         for index in 1..=MAX_SESSION_STORAGE_ROOTS {
             let id = format!("storage-root-session-{index}");
@@ -150,12 +171,17 @@ impl NativeDocumentRootRegistry {
                 return Ok(id);
             }
         }
-        Err(OwnerDocumentError::document("session storage-root capacity reached"))
+        Err(OwnerDocumentError::document(
+            "session storage-root capacity reached",
+        ))
     }
 
     #[cfg(test)]
     pub(crate) fn registered_root_count(&self) -> usize {
-        self.roots.lock().expect("storage-root registry available").len()
+        self.roots
+            .lock()
+            .expect("storage-root registry available")
+            .len()
     }
 
     fn resolve(&self, root_id: &str) -> OwnerDocumentResult<PathBuf> {
@@ -163,15 +189,16 @@ impl NativeDocumentRootRegistry {
         let root = self
             .roots
             .lock()
-            .map_err(|_| OwnerDocumentError::document("document storage-root registry is unavailable"))?
+            .map_err(|_| {
+                OwnerDocumentError::document("document storage-root registry is unavailable")
+            })?
             .get(&root_id)
             .cloned()
             .ok_or_else(OwnerDocumentError::storage_root_not_configured)?;
         if !root.is_dir() {
             return Err(OwnerDocumentError::storage_root_not_configured());
         }
-        fs::canonicalize(root)
-            .map_err(|_| OwnerDocumentError::storage_root_not_configured())
+        fs::canonicalize(root).map_err(|_| OwnerDocumentError::storage_root_not_configured())
     }
 }
 
@@ -365,22 +392,30 @@ fn read_bounded_file(path: &Path) -> OwnerDocumentResult<Vec<u8>> {
     let mut bytes = Vec::new();
     file.take(MAX_DOCUMENT_READ_BYTES)
         .read_to_end(&mut bytes)
-        .map_err(|error| OwnerDocumentError::document(format!("selected document could not be read: {error}")))?;
+        .map_err(|error| {
+            OwnerDocumentError::document(format!("selected document could not be read: {error}"))
+        })?;
     if bytes.is_empty() {
         return Err(OwnerDocumentError::document("selected document is empty"));
     }
     if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(OwnerDocumentError::document("selected document exceeds the 25 MiB limit"));
+        return Err(OwnerDocumentError::document(
+            "selected document exceeds the 25 MiB limit",
+        ));
     }
     Ok(bytes)
 }
 
 fn ensure_contained_parent(root: &Path, parent: &Path) -> OwnerDocumentResult<PathBuf> {
     fs::create_dir_all(parent).map_err(|error| {
-        OwnerDocumentError::document(format!("document destination directory could not be created: {error}"))
+        OwnerDocumentError::document(format!(
+            "document destination directory could not be created: {error}"
+        ))
     })?;
     let canonical_parent = fs::canonicalize(parent).map_err(|error| {
-        OwnerDocumentError::document(format!("document destination directory could not be resolved: {error}"))
+        OwnerDocumentError::document(format!(
+            "document destination directory could not be resolved: {error}"
+        ))
     })?;
     if !canonical_parent.starts_with(root) {
         return Err(OwnerDocumentError::document(
@@ -397,7 +432,9 @@ fn verify_existing_destination(
     expected_len: u64,
 ) -> OwnerDocumentResult<()> {
     let canonical = fs::canonicalize(destination).map_err(|error| {
-        OwnerDocumentError::document(format!("existing document destination could not be resolved: {error}"))
+        OwnerDocumentError::document(format!(
+            "existing document destination could not be resolved: {error}"
+        ))
     })?;
     if !canonical.starts_with(root) {
         return Err(OwnerDocumentError::document(
@@ -405,7 +442,9 @@ fn verify_existing_destination(
         ));
     }
     let bytes = read_bounded_file(&canonical)?;
-    if bytes.len() as u64 != expected_len || core::bank_import::sha256_hex(&bytes) != expected_sha256 {
+    if bytes.len() as u64 != expected_len
+        || core::bank_import::sha256_hex(&bytes) != expected_sha256
+    {
         return Err(OwnerDocumentError::integrity(
             "existing document destination conflicts with the selected document",
         ));
@@ -422,11 +461,14 @@ fn copy_selected_to_root(
     let original_filename = source
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| OwnerDocumentError::document("selected document filename is not valid UTF-8"))?;
+        .ok_or_else(|| {
+            OwnerDocumentError::document("selected document filename is not valid UTF-8")
+        })?;
     let original_filename = validate_filename(original_filename)?;
     let sha256 = core::bank_import::sha256_hex(&bytes);
-    let byte_len = u64::try_from(bytes.len())
-        .map_err(|_| OwnerDocumentError::document("selected document length cannot be represented"))?;
+    let byte_len = u64::try_from(bytes.len()).map_err(|_| {
+        OwnerDocumentError::document("selected document length cannot be represented")
+    })?;
     let document_id = format!("doc-{sha256}");
     let relative_path = format!("documents/{sha256}/{original_filename}");
 
@@ -436,30 +478,43 @@ fn copy_selected_to_root(
 
     if destination.exists() {
         verify_existing_destination(root, &destination, &sha256, byte_len)?;
-        return Ok((DocumentWrite {
-            document_id,
-            storage_root_id: root_id.to_string(),
-            relative_path,
-            original_filename: original_filename.clone(),
-            media_type: media_type_for_filename(&original_filename),
-            sha256,
-            byte_len,
-        }, destination, false));
+        return Ok((
+            DocumentWrite {
+                document_id,
+                storage_root_id: root_id.to_string(),
+                relative_path,
+                original_filename: original_filename.clone(),
+                media_type: media_type_for_filename(&original_filename),
+                sha256,
+                byte_len,
+            },
+            destination,
+            false,
+        ));
     }
 
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| OwnerDocumentError::document("system clock is invalid"))?
         .as_nanos();
-    let temp = parent.join(format!(".{original_filename}.sbc7b1-{}-{nonce}.tmp", std::process::id()));
+    let temp = parent.join(format!(
+        ".{original_filename}.sbc7b1-{}-{nonce}.tmp",
+        std::process::id()
+    ));
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&temp)
-        .map_err(|error| OwnerDocumentError::document(format!("temporary document copy could not be created: {error}")))?;
+        .map_err(|error| {
+            OwnerDocumentError::document(format!(
+                "temporary document copy could not be created: {error}"
+            ))
+        })?;
     if let Err(error) = output.write_all(&bytes).and_then(|_| output.sync_all()) {
         let _ = fs::remove_file(&temp);
-        return Err(OwnerDocumentError::document(format!("document copy could not be written: {error}")));
+        return Err(OwnerDocumentError::document(format!(
+            "document copy could not be written: {error}"
+        )));
     }
     drop(output);
     if let Err(error) = verify_existing_destination(root, &temp, &sha256, byte_len) {
@@ -476,19 +531,25 @@ fn copy_selected_to_root(
         }
         Err(error) => {
             let _ = fs::remove_file(&temp);
-            return Err(OwnerDocumentError::document(format!("document copy could not be finalized: {error}")));
+            return Err(OwnerDocumentError::document(format!(
+                "document copy could not be finalized: {error}"
+            )));
         }
     };
 
-    Ok((DocumentWrite {
-        document_id,
-        storage_root_id: root_id.to_string(),
-        relative_path,
-        original_filename: original_filename.clone(),
-        media_type: media_type_for_filename(&original_filename),
-        sha256,
-        byte_len,
-    }, destination, created_destination))
+    Ok((
+        DocumentWrite {
+            document_id,
+            storage_root_id: root_id.to_string(),
+            relative_path,
+            original_filename: original_filename.clone(),
+            media_type: media_type_for_filename(&original_filename),
+            sha256,
+            byte_len,
+        },
+        destination,
+        created_destination,
+    ))
 }
 
 fn register_selected_path(
@@ -502,11 +563,15 @@ fn register_selected_path(
     let (write, destination, created_destination) =
         copy_selected_to_root(source, &storage_root_id, &root)?;
     match books.register_document(&write) {
-        Ok(DocumentPersistOutcome::Registered(document)) => Ok(OwnerDocumentSelectOutcome::Registered {
-            document: document.into(),
-        }),
+        Ok(DocumentPersistOutcome::Registered(document)) => {
+            Ok(OwnerDocumentSelectOutcome::Registered {
+                document: document.into(),
+            })
+        }
         Ok(DocumentPersistOutcome::AlreadyRegistered(document)) => {
-            Ok(OwnerDocumentSelectOutcome::AlreadyRegistered { document: document.into() })
+            Ok(OwnerDocumentSelectOutcome::AlreadyRegistered {
+                document: document.into(),
+            })
         }
         Err(error) => {
             if created_destination {
@@ -528,7 +593,9 @@ fn trusted_document_path(
         return Ok(None);
     }
     let canonical = fs::canonicalize(&candidate).map_err(|error| {
-        OwnerDocumentError::document(format!("registered document path could not be resolved: {error}"))
+        OwnerDocumentError::document(format!(
+            "registered document path could not be resolved: {error}"
+        ))
     })?;
     if !canonical.starts_with(&root) {
         return Err(OwnerDocumentError::document(
@@ -545,8 +612,11 @@ fn current_integrity(
     let Some(path) = trusted_document_path(roots, document)? else {
         return Ok((OwnerDocumentIntegrityStatus::Missing, None));
     };
-    let metadata = fs::metadata(&path)
-        .map_err(|error| OwnerDocumentError::document(format!("registered document metadata could not be read: {error}")))?;
+    let metadata = fs::metadata(&path).map_err(|error| {
+        OwnerDocumentError::document(format!(
+            "registered document metadata could not be read: {error}"
+        ))
+    })?;
     if !metadata.is_file() {
         return Ok((OwnerDocumentIntegrityStatus::Missing, None));
     }
@@ -566,14 +636,18 @@ fn require_verified_document(
     document_id: &str,
 ) -> OwnerDocumentResult<(DocumentView, PathBuf)> {
     let document_id = bounded_id(document_id.to_string(), "document id")?;
-    let document = books.document(&document_id).map_err(OwnerDocumentError::foundation)?;
+    let document = books
+        .document(&document_id)
+        .map_err(OwnerDocumentError::foundation)?;
     let (integrity, path) = current_integrity(roots, &document)?;
     if integrity != OwnerDocumentIntegrityStatus::Verified {
         return Err(OwnerDocumentError::integrity(format!(
             "registered document is not verified: {integrity:?}"
         )));
     }
-    let path = path.ok_or_else(|| OwnerDocumentError::integrity("verified document has no trusted native path"))?;
+    let path = path.ok_or_else(|| {
+        OwnerDocumentError::integrity("verified document has no trusted native path")
+    })?;
     Ok((document, path))
 }
 
@@ -590,9 +664,11 @@ pub(crate) async fn owner_document_select_register(
     let Some(selected) = selected else {
         return Ok(OwnerDocumentSelectOutcome::Cancelled);
     };
-    let path = selected
-        .into_path()
-        .map_err(|_| OwnerDocumentError::document("selected document could not be resolved to a native file path"))?;
+    let path = selected.into_path().map_err(|_| {
+        OwnerDocumentError::document(
+            "selected document could not be resolved to a native file path",
+        )
+    })?;
     register_selected_path(&books, &roots, &root_id, &path)
 }
 
@@ -603,7 +679,9 @@ pub(crate) fn owner_document_verify(
 ) -> OwnerDocumentResult<OwnerDocumentVerifyOutcome> {
     let books = request.books.open()?;
     let document_id = bounded_id(request.document_id, "document id")?;
-    let document = books.document(&document_id).map_err(OwnerDocumentError::foundation)?;
+    let document = books
+        .document(&document_id)
+        .map_err(OwnerDocumentError::foundation)?;
     let (integrity, _) = current_integrity(&roots, &document)?;
     Ok(OwnerDocumentVerifyOutcome {
         bridge_version: OWNER_DOCUMENT_BRIDGE_VERSION,
@@ -622,7 +700,9 @@ pub(crate) fn owner_document_attach(
     let record_id = bounded_id(request.record_id, "record id")?;
     let _ = require_verified_document(&books, &roots, &document_id)?;
     let reference = format!("sbc7b1:{}:{record_id}", request.record_kind.as_str());
-    let transactions = books.find_by_reference(&reference).map_err(OwnerDocumentError::foundation)?;
+    let transactions = books
+        .find_by_reference(&reference)
+        .map_err(OwnerDocumentError::foundation)?;
     if transactions.len() != 1 {
         return Err(OwnerDocumentError::document(
             "document attachment requires exactly one authoritative owner transaction",
@@ -653,6 +733,26 @@ pub(crate) fn owner_document_attach(
 }
 
 #[tauri::command]
+pub(crate) fn owner_document_open_view(
+    roots: tauri::State<'_, NativeDocumentRootRegistry>,
+    request: OwnerDocumentVerifyRequest,
+) -> OwnerDocumentResult<tauri::ipc::Response> {
+    let books = request.books.open()?;
+    let document_id = bounded_id(request.document_id, "document id")?;
+    let (document, path) = require_verified_document(&books, &roots, &document_id)?;
+    let bytes = read_bounded_file(&path)?;
+    let byte_len = u64::try_from(bytes.len()).map_err(|_| {
+        OwnerDocumentError::integrity("verified document length cannot be represented")
+    })?;
+    if byte_len != document.byte_len || core::bank_import::sha256_hex(&bytes) != document.sha256 {
+        return Err(OwnerDocumentError::integrity(
+            "registered document changed during bounded open/view read",
+        ));
+    }
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
 pub(crate) fn owner_ocr_extract_receipt(
     app: tauri::AppHandle,
     roots: tauri::State<'_, NativeDocumentRootRegistry>,
@@ -668,11 +768,12 @@ pub(crate) fn owner_ocr_extract_receipt(
     ocr_registry
         .approve(document_id.clone(), approved)
         .map_err(OwnerDocumentError::document)?;
-    let ocr_request: ocr_native::OcrReceiptCommandRequest = serde_json::from_value(serde_json::json!({
-        "requestId": request_id,
-        "documentId": document_id
-    }))
-    .map_err(|_| OwnerDocumentError::invalid("OCR request identifiers are invalid"))?;
+    let ocr_request: ocr_native::OcrReceiptCommandRequest =
+        serde_json::from_value(serde_json::json!({
+            "requestId": request_id,
+            "documentId": document_id
+        }))
+        .map_err(|_| OwnerDocumentError::invalid("OCR request identifiers are invalid"))?;
     ocr_native::ocr_extract_receipt(app, ocr_registry, ocr_request)
         .map_err(OwnerDocumentError::document)
 }
@@ -682,7 +783,10 @@ mod tests {
     use super::*;
 
     fn temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let path = std::env::temp_dir().join(format!(
             "shark-sbc7b1-owner-doc-{label}-{}-{nonce}",
             std::process::id()
@@ -699,13 +803,32 @@ mod tests {
         });
         assert!(serde_json::from_value::<OwnerDocumentSelectRequest>(base.clone()).is_ok());
         for forbidden in [
-            "sourcePath", "destinationPath", "fileUrl", "expectedSha256", "expectedByteLen",
-            "databasePath", "passphrase", "token", "accountId", "category", "taxTreatment",
-            "transactionId", "modelPath", "executablePath", "shellCommand", "url",
+            "sourcePath",
+            "destinationPath",
+            "fileUrl",
+            "expectedSha256",
+            "expectedByteLen",
+            "databasePath",
+            "passphrase",
+            "token",
+            "accountId",
+            "category",
+            "taxTreatment",
+            "transactionId",
+            "modelPath",
+            "executablePath",
+            "shellCommand",
+            "url",
         ] {
             let mut bad = base.clone();
-            bad.as_object_mut().unwrap().insert(forbidden.to_string(), serde_json::Value::String("forbidden".into()));
-            assert!(serde_json::from_value::<OwnerDocumentSelectRequest>(bad).is_err(), "forbidden field accepted: {forbidden}");
+            bad.as_object_mut().unwrap().insert(
+                forbidden.to_string(),
+                serde_json::Value::String("forbidden".into()),
+            );
+            assert!(
+                serde_json::from_value::<OwnerDocumentSelectRequest>(bad).is_err(),
+                "forbidden field accepted: {forbidden}"
+            );
         }
     }
 
@@ -714,12 +837,22 @@ mod tests {
         let original = temp_dir("session-original");
         let selected = temp_dir("session-selected");
         let roots = NativeDocumentRootRegistry::default();
-        roots.register_native_root("storage-root-session-1", original.clone()).unwrap();
-        roots.register_native_root("manual-root", selected.clone()).unwrap();
+        roots
+            .register_native_root("storage-root-session-1", original.clone())
+            .unwrap();
+        roots
+            .register_native_root("manual-root", selected.clone())
+            .unwrap();
         let id = roots.register_session_root(selected.clone()).unwrap();
         assert_eq!(id, "storage-root-session-2");
-        assert_eq!(roots.resolve("storage-root-session-1").unwrap(), fs::canonicalize(&original).unwrap());
-        assert_eq!(roots.resolve(&id).unwrap(), fs::canonicalize(&selected).unwrap());
+        assert_eq!(
+            roots.resolve("storage-root-session-1").unwrap(),
+            fs::canonicalize(&original).unwrap()
+        );
+        assert_eq!(
+            roots.resolve(&id).unwrap(),
+            fs::canonicalize(&selected).unwrap()
+        );
         assert_eq!(roots.register_session_root(selected.join(".")).unwrap(), id);
         assert_eq!(roots.registered_root_count(), 3);
 
@@ -733,13 +866,18 @@ mod tests {
 
         // Fill native collisions without creating 1024 directories. Capacity counts IDs.
         for index in 3..=MAX_SESSION_STORAGE_ROOTS {
-            roots.register_native_root(format!("storage-root-session-{index}"), original.clone()).unwrap();
+            roots
+                .register_native_root(format!("storage-root-session-{index}"), original.clone())
+                .unwrap();
         }
         let extra = temp_dir("session-overflow");
         assert!(roots.register_session_root(extra.clone()).is_err());
         assert_eq!(roots.registered_root_count(), MAX_SESSION_STORAGE_ROOTS + 1);
         assert_eq!(roots.register_session_root(selected.clone()).unwrap(), id);
-        assert_eq!(roots.resolve("storage-root-session-1").unwrap(), fs::canonicalize(&original).unwrap());
+        assert_eq!(
+            roots.resolve("storage-root-session-1").unwrap(),
+            fs::canonicalize(&original).unwrap()
+        );
         fs::remove_dir_all(original).unwrap();
         fs::remove_dir_all(selected).unwrap();
         fs::remove_dir_all(extra).unwrap();
@@ -759,11 +897,17 @@ mod tests {
         let source = source_dir.join("receipt.png");
         fs::write(&source, b"receipt-bytes-123").unwrap();
         let registry = NativeDocumentRootRegistry::default();
-        registry.register_native_root("root-1", root.clone()).unwrap();
+        registry
+            .register_native_root("root-1", root.clone())
+            .unwrap();
         let canonical_root = registry.resolve("root-1").unwrap();
-        let (write, destination, created) = copy_selected_to_root(&source, "root-1", &canonical_root).unwrap();
+        let (write, destination, created) =
+            copy_selected_to_root(&source, "root-1", &canonical_root).unwrap();
         assert!(created);
-        assert_eq!(write.sha256, core::bank_import::sha256_hex(b"receipt-bytes-123"));
+        assert_eq!(
+            write.sha256,
+            core::bank_import::sha256_hex(b"receipt-bytes-123")
+        );
         assert_eq!(write.byte_len, 17);
         assert_eq!(write.document_id, format!("doc-{}", write.sha256));
         assert!(destination.starts_with(canonical_root));
@@ -779,7 +923,9 @@ mod tests {
         let source = source_dir.join("receipt.png");
         fs::write(&source, b"receipt-original").unwrap();
         let registry = NativeDocumentRootRegistry::default();
-        registry.register_native_root("root-1", root.clone()).unwrap();
+        registry
+            .register_native_root("root-1", root.clone())
+            .unwrap();
         let canonical_root = registry.resolve("root-1").unwrap();
         let hash = core::bank_import::sha256_hex(b"receipt-original");
         let destination_dir = canonical_root.join("documents").join(&hash);
@@ -795,7 +941,9 @@ mod tests {
     fn verification_detects_hash_tamper_size_tamper_and_missing_file() {
         let root = temp_dir("verify-root");
         let registry = NativeDocumentRootRegistry::default();
-        registry.register_native_root("root-1", root.clone()).unwrap();
+        registry
+            .register_native_root("root-1", root.clone())
+            .unwrap();
         let canonical_root = registry.resolve("root-1").unwrap();
         let bytes = b"receipt-body";
         let sha256 = core::bank_import::sha256_hex(bytes);
@@ -814,13 +962,25 @@ mod tests {
             registered_by: "owner".into(),
             registered_at: "2026-09-12 00:00:00".into(),
         };
-        assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::Verified);
+        assert_eq!(
+            current_integrity(&registry, &document).unwrap().0,
+            OwnerDocumentIntegrityStatus::Verified
+        );
         fs::write(&path, b"Receipt-body").unwrap();
-        assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::HashMismatch);
+        assert_eq!(
+            current_integrity(&registry, &document).unwrap().0,
+            OwnerDocumentIntegrityStatus::HashMismatch
+        );
         fs::write(&path, b"tampered-body").unwrap();
-        assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::SizeMismatch);
+        assert_eq!(
+            current_integrity(&registry, &document).unwrap().0,
+            OwnerDocumentIntegrityStatus::SizeMismatch
+        );
         fs::remove_file(&path).unwrap();
-        assert_eq!(current_integrity(&registry, &document).unwrap().0, OwnerDocumentIntegrityStatus::Missing);
+        assert_eq!(
+            current_integrity(&registry, &document).unwrap().0,
+            OwnerDocumentIntegrityStatus::Missing
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -828,7 +988,9 @@ mod tests {
     fn unsafe_persisted_relative_path_is_rejected_before_join() {
         let root = temp_dir("unsafe-path-root");
         let registry = NativeDocumentRootRegistry::default();
-        registry.register_native_root("root-1", root.clone()).unwrap();
+        registry
+            .register_native_root("root-1", root.clone())
+            .unwrap();
         let document = DocumentView {
             document_id: format!("doc-{}", "11".repeat(32)),
             storage_root_id: "root-1".into(),
@@ -840,7 +1002,12 @@ mod tests {
             registered_by: "owner".into(),
             registered_at: "2026-09-12 00:00:00".into(),
         };
-        assert_eq!(trusted_document_path(&registry, &document).unwrap_err().code, "documentOperationFailed");
+        assert_eq!(
+            trusted_document_path(&registry, &document)
+                .unwrap_err()
+                .code,
+            "documentOperationFailed"
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

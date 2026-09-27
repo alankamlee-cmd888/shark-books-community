@@ -1,0 +1,9 @@
+# Generated Action System contracts are byte-compared by the Windows gate.
+# Keep their working-tree line endings deterministic across core.autocrlf settings.
+contracts/action-system/v1/action_contract.schema.json text eol=lf
+contracts/action-system/v1/action_contract.ts text eol=lf
+# Frozen regression receipt is byte-hashed by the Windows gate.
+workspace/shark-foundation/tests/fixtures/sample_receipt.txt text eol=lf
+# Vite source template and tracked production output must remain LF on Windows.
+workspace/ui/index.html text eol=lf
+workspace/dist/** text eol=lf

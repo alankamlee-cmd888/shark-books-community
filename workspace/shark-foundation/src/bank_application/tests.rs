@@ -151,8 +151,11 @@ fn application_schema_v5_is_separate_from_beankeeper_schema_8() {
 #[test]
 fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
     let (books, path) = test_books("v4-v5-preservation");
-    books.db.conn().execute_batch(
-        "INSERT INTO shark_document(
+    books
+        .db
+        .conn()
+        .execute_batch(
+            "INSERT INTO shark_document(
             company_slug, document_id, storage_root_id, relative_path,
             original_filename, media_type, sha256, byte_len, registered_by
         ) VALUES(
@@ -165,37 +168,66 @@ fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
             company_slug, suggestion_id, document_id, decision_kind, decided_by
         ) VALUES(
             'bank-test', 'migration-suggestion', 'migration-doc', 'rejected', 'local-owner'
-        );"
-    ).expect("seed real Batch A document and rejected receipt decision");
+        );",
+        )
+        .expect("seed real Batch A document and rejected receipt decision");
     let decision_snapshot = || {
-        books.db.conn().query_row(
-            "SELECT * FROM shark_receipt_bank_decision
+        books
+            .db
+            .conn()
+            .query_row(
+                "SELECT * FROM shark_receipt_bank_decision
              WHERE company_slug = 'bank-test' AND suggestion_id = 'migration-suggestion'",
-            [],
-            |row| (0..row.as_ref().column_count())
-                .map(|index| row.get_ref(index).map(|value| format!("{value:?}")))
-                .collect::<Result<Vec<_>, _>>(),
-        ).expect("complete Batch A decision row")
+                [],
+                |row| {
+                    (0..row.as_ref().column_count())
+                        .map(|index| row.get_ref(index).map(|value| format!("{value:?}")))
+                        .collect::<Result<Vec<_>, _>>()
+                },
+            )
+            .expect("complete Batch A decision row")
     };
     let before = decision_snapshot();
-    books.db.conn().execute_batch(
-        "DROP TABLE shark_contact;
-         UPDATE shark_application_meta SET schema_version = 4 WHERE id = 1;"
-    ).expect("reconstruct v4 application schema");
+    books
+        .db
+        .conn()
+        .execute_batch(
+            "DROP TABLE shark_contact;
+         UPDATE shark_application_meta SET schema_version = 4 WHERE id = 1;",
+        )
+        .expect("reconstruct v4 application schema");
     ensure_application_schema(&books.db).expect("migrate v4 to v5");
-    let version: i64 = books.db.conn().query_row(
-        "SELECT schema_version FROM shark_application_meta WHERE id = 1", [], |row| row.get(0)
-    ).expect("application schema version");
+    let version: i64 = books
+        .db
+        .conn()
+        .query_row(
+            "SELECT schema_version FROM shark_application_meta WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("application schema version");
     assert_eq!(version, 5);
     for table in ["shark_contact", "shark_owner_correction"] {
-        let count: i64 = books.db.conn().query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            [table], |row| row.get(0)
-        ).expect("application table");
+        let count: i64 = books
+            .db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get(0),
+            )
+            .expect("application table");
         assert_eq!(count, 1, "missing {table}");
     }
-    assert_eq!(decision_snapshot(), before, "all Batch A decision fields survive unchanged");
-    assert!(books.document("migration-doc").is_ok(), "referenced document survives");
+    assert_eq!(
+        decision_snapshot(),
+        before,
+        "all Batch A decision fields survive unchanged"
+    );
+    assert!(
+        books.document("migration-doc").is_ok(),
+        "referenced document survives"
+    );
     assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     drop(books);
     remove_sqlite_artifacts(&path);
@@ -264,6 +296,90 @@ fn bank_activity_batch_is_atomic_and_does_not_post_accounting_transactions() {
 }
 
 #[test]
+fn bank_activity_review_is_read_only_and_matches_duplicate_semantics() {
+    let (books, path) = test_books("activity-review");
+    let before_transactions = books.count_transactions().expect("before transactions");
+    let before_activity = books
+        .list_bank_activity(500, 0)
+        .expect("before activity")
+        .len();
+
+    let strong = "csv:GBP:bank-main:T-csv:row:review-1";
+    let first = activity("csv:row:review-1", '6', Some(strong), -2_500);
+
+    let fresh = books
+        .review_bank_activity_batch(std::slice::from_ref(&first))
+        .expect("fresh review");
+    assert_eq!(fresh[0].kind, BankActivityReviewKind::New);
+    assert_eq!(fresh[0].existing_activity_id, None);
+    assert_eq!(
+        books.list_bank_activity(500, 0).unwrap().len(),
+        before_activity
+    );
+    assert_eq!(books.count_transactions().unwrap(), before_transactions);
+
+    let persisted = books
+        .persist_bank_activity_batch(std::slice::from_ref(&first))
+        .expect("persist seed");
+    let strong_duplicate = books
+        .review_bank_activity_batch(std::slice::from_ref(&first))
+        .expect("strong duplicate review");
+    assert_eq!(
+        strong_duplicate[0].kind,
+        BankActivityReviewKind::StrongDuplicate
+    );
+    assert_eq!(
+        strong_duplicate[0].existing_activity_id,
+        Some(persisted[0].activity_id)
+    );
+
+    let file_exact = activity("csv:row:review-2", '7', None, -1_100);
+    let file_persisted = books
+        .persist_bank_activity_batch(std::slice::from_ref(&file_exact))
+        .expect("persist file exact seed");
+    let file_duplicate = books
+        .review_bank_activity_batch(std::slice::from_ref(&file_exact))
+        .expect("file exact review");
+    assert_eq!(
+        file_duplicate[0].kind,
+        BankActivityReviewKind::FileExactDuplicate
+    );
+    assert_eq!(
+        file_duplicate[0].existing_activity_id,
+        Some(file_persisted[0].activity_id)
+    );
+
+    let in_batch_strong = activity(
+        "csv:row:review-3",
+        '8',
+        Some("csv:GBP:bank-main:T-csv:row:review-3"),
+        -900,
+    );
+    let in_batch = books
+        .review_bank_activity_batch(&[in_batch_strong.clone(), in_batch_strong.clone()])
+        .expect("in-batch strong duplicate review");
+    assert_eq!(in_batch[0].kind, BankActivityReviewKind::New);
+    assert_eq!(in_batch[1].kind, BankActivityReviewKind::StrongDuplicate);
+    assert_eq!(in_batch[1].existing_activity_id, None);
+
+    let mut conflict = in_batch_strong.clone();
+    conflict.signed_amount_minor = -901;
+    assert!(
+        books
+            .review_bank_activity_batch(&[in_batch_strong, conflict])
+            .is_err(),
+        "conflicting strong identity must fail read-only review"
+    );
+
+    assert_eq!(
+        books.count_transactions().expect("after transactions"),
+        before_transactions
+    );
+    drop(books);
+    remove_sqlite_artifacts(&path);
+}
+
+#[test]
 fn noncanonical_bank_provenance_fails_before_persistence() {
     let (books, path) = test_books("provenance");
     let mut invalid = activity(
@@ -273,9 +389,11 @@ fn noncanonical_bank_provenance_fails_before_persistence() {
         -500,
     );
     invalid.provenance_fingerprint = Some("sha256:wrong".to_string());
-    assert!(books
-        .persist_bank_activity_batch(std::slice::from_ref(&invalid))
-        .is_err());
+    assert!(
+        books
+            .persist_bank_activity_batch(std::slice::from_ref(&invalid))
+            .is_err()
+    );
     assert!(books.list_bank_activity(500, 0).unwrap().is_empty());
     drop(books);
     remove_sqlite_artifacts(&path);
@@ -305,7 +423,9 @@ fn match_confirmation_is_atomic_audited_forward_only_and_idempotent() {
     assert_eq!(view.transaction_id, transaction_id);
     assert_eq!(view.entry_id, entry_id);
 
-    let transaction = books.transaction(transaction_id).expect("matched transaction");
+    let transaction = books
+        .transaction(transaction_id)
+        .expect("matched transaction");
     let bank_entry = transaction
         .entries
         .iter()
@@ -315,8 +435,14 @@ fn match_confirmation_is_atomic_audited_forward_only_and_idempotent() {
     let audit = books.audit_status_changes().expect("status audit");
     assert!(audit.iter().any(|row| {
         row.entity_id == entry_id.to_string()
-            && row.before.as_deref().is_some_and(|value| value.contains("uncleared"))
-            && row.after.as_deref().is_some_and(|value| value.contains("cleared"))
+            && row
+                .before
+                .as_deref()
+                .is_some_and(|value| value.contains("uncleared"))
+            && row
+                .after
+                .as_deref()
+                .is_some_and(|value| value.contains("cleared"))
     }));
 
     let repeated = confirm_match_for(&books, activity_id, transaction_id, entry_id);
@@ -366,8 +492,7 @@ fn reconciliation_finalisation_is_exact_zero_audited_and_idempotent() {
         .persist_bank_activity_batch(std::slice::from_ref(&source))
         .expect("persist activity")[0]
         .activity_id;
-    let (transaction_id, entry_id) =
-        post_bank_transaction(&books, "reconcile-ledger", -2_500);
+    let (transaction_id, entry_id) = post_bank_transaction(&books, "reconcile-ledger", -2_500);
     let _ = confirm_match_for(&books, activity_id, transaction_id, entry_id);
 
     let write = BankReconciliationWrite {
@@ -401,8 +526,14 @@ fn reconciliation_finalisation_is_exact_zero_audited_and_idempotent() {
     let audit = books.audit_status_changes().expect("audit");
     assert!(audit.iter().any(|row| {
         row.entity_id == entry_id.to_string()
-            && row.before.as_deref().is_some_and(|value| value.contains("cleared"))
-            && row.after.as_deref().is_some_and(|value| value.contains("reconciled"))
+            && row
+                .before
+                .as_deref()
+                .is_some_and(|value| value.contains("cleared"))
+            && row
+                .after
+                .as_deref()
+                .is_some_and(|value| value.contains("reconciled"))
     }));
 
     let repeated = books
@@ -437,8 +568,7 @@ fn failed_reconciliation_leaves_cleared_state_and_no_header() {
         .persist_bank_activity_batch(std::slice::from_ref(&source))
         .expect("persist activity")[0]
         .activity_id;
-    let (transaction_id, entry_id) =
-        post_bank_transaction(&books, "reconcile-fail-ledger", 1_000);
+    let (transaction_id, entry_id) = post_bank_transaction(&books, "reconcile-fail-ledger", 1_000);
     let _ = confirm_match_for(&books, activity_id, transaction_id, entry_id);
 
     let invalid = BankReconciliationWrite {
