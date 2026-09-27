@@ -1,15 +1,15 @@
 {
-  "candidate_sha": "6f6985644dbc9ab226ff45ec31ae554c3487d1cf",
-  "emitted_at_utc": "2026-09-27T00:15:53.643316Z",
-  "event_id": "SBC_R6_REPAIR_CONTRACT_6F69856_20260927A_acb22ebee141023f",
+  "candidate_sha": null,
+  "emitted_at_utc": "2026-09-27T00:29:29.379247Z",
+  "event_id": "SIQI_F02_TARGETED_SOURCE_ACQUISITION_PHASE2_20260927A_659d4447b78d6594",
   "event_type": "AUTOPILOT_LANE_TERMINAL",
-  "lane": "SBC",
+  "lane": "SIQI",
   "privacy": "metadata_only_no_local_paths_no_evidence_body",
-  "published_at_utc": "2026-09-27T00:15:56.343788Z",
+  "published_at_utc": "2026-09-27T00:29:30.728726Z",
   "purpose": "MTD Shark Autopilot terminal-event signal for ChatGPT Work.",
   "requires_chatgpt_resume": true,
   "schema_version": 1,
-  "stage": "R6_REPAIR_FAILED",
-  "status": "FAILED",
-  "task_id": "R6_REPAIR_CONTRACT_6F69856_20260927A"
+  "stage": "F02_PHASE2_PASS_PENDING_CHATGPT_REVIEW",
+  "status": "PASS_PENDING_CHATGPT_REVIEW",
+  "task_id": "F02_TARGETED_SOURCE_ACQUISITION_PHASE2_20260927A"
 }
