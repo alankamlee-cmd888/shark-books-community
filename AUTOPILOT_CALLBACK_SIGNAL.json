@@ -1,15 +1,15 @@
 {
   "candidate_sha": null,
-  "emitted_at_utc": "2026-09-27T06:26:18.814251Z",
-  "event_id": "SIQI_F02_TARGETED_SOURCE_ACQUISITION_PHASE3_20260927A_6efb6502dd914ef7",
+  "emitted_at_utc": "2026-09-27T06:29:04.555094Z",
+  "event_id": "SIQI_F02_TARGETED_SOURCE_ACQUISITION_PHASE4_GENERATOR_LINEAGE_20260927A_7fe37ef2def09d8a",
   "event_type": "AUTOPILOT_LANE_TERMINAL",
   "lane": "SIQI",
   "privacy": "metadata_only_no_local_paths_no_evidence_body",
-  "published_at_utc": "2026-09-27T06:26:21.393468Z",
+  "published_at_utc": "2026-09-27T06:29:06.015952Z",
   "purpose": "MTD Shark Autopilot terminal-event signal for ChatGPT Work.",
   "requires_chatgpt_resume": true,
   "schema_version": 1,
-  "stage": "F02_PHASE3_PASS_PENDING_CHATGPT_REVIEW",
+  "stage": "F02_PHASE4_PASS_PENDING_CHATGPT_REVIEW",
   "status": "PASS_PENDING_CHATGPT_REVIEW",
-  "task_id": "F02_TARGETED_SOURCE_ACQUISITION_PHASE3_20260927A"
+  "task_id": "F02_TARGETED_SOURCE_ACQUISITION_PHASE4_GENERATOR_LINEAGE_20260927A"
 }
