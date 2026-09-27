@@ -1,0 +1,4 @@
+# Generated Action System contracts are byte-compared by the Windows gate.
+# Keep their working-tree line endings deterministic across core.autocrlf settings.
+contracts/action-system/v1/action_contract.schema.json text eol=lf
+contracts/action-system/v1/action_contract.ts text eol=lf
