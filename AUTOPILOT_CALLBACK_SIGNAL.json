@@ -1,15 +1,15 @@
 {
   "candidate_sha": "8db7dfb4fc4987ad4f61a84beefbd2b7596df0d6",
-  "emitted_at_utc": "2026-09-28T00:39:44.691380Z",
-  "event_id": "SBC_SBC7C_ACCEPTANCE_20260927A_ed3aad10f38a4d78",
+  "emitted_at_utc": "2026-09-29T00:06:33.207401Z",
+  "event_id": "SBC_SBC7C_ACCEPTANCE_20260927A_3876e96184ec7099",
   "event_type": "AUTOPILOT_LANE_TERMINAL",
   "lane": "SBC",
   "privacy": "metadata_only_no_local_paths_no_evidence_body",
-  "published_at_utc": "2026-09-28T00:39:47.472380Z",
+  "published_at_utc": "2026-09-29T00:06:36.291744Z",
   "purpose": "MTD Shark Autopilot terminal-event signal for ChatGPT Work.",
   "requires_chatgpt_resume": true,
   "schema_version": 1,
-  "stage": "SBC_7C_ACCEPTANCE_BASELINE_FAILED",
-  "status": "FAILED_EXCEPTION",
+  "stage": "SBC_7C_J1_J10_FAIL_J10_OWNER_COPY",
+  "status": null,
   "task_id": "SBC7C_ACCEPTANCE_20260927A"
 }
