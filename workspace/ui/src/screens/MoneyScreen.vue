@@ -496,9 +496,9 @@ watch(
         <p class="eyebrow">Correction</p>
         <h2>Prepare an append-only correction</h2>
         <p class="subtle">
-          The original record is not edited. Shark Books previews a reversal and optional replacement.
+          The original record is not edited. Shark Books previews how the correction will change the record.
           Re-enter the corrected category, payment route and business-use facts; they are not inferred
-          from the prior accounting entries.
+          from the prior record.
         </p>
         <div class="field-grid">
           <label class="field-span">
@@ -586,7 +586,7 @@ watch(
       v-if="preview"
       v-model:open="saveDialogOpen"
       :title="`Confirm ${title.toLowerCase()}`"
-      description="Save exactly the reviewed owner facts. Shark Books will re-run the deterministic posting plan."
+      description="Save exactly the details you reviewed. Shark Books will check the record again before saving."
       confirm-label="Save record"
       :action-id="
         kind === 'moneyIn'
@@ -607,7 +607,7 @@ watch(
       v-if="correctionPreview"
       v-model:open="correctionDialogOpen"
       title="Confirm correction"
-      description="This creates an append-only reversal and the reviewed replacement, if any. The original audit record remains."
+      description="This keeps the original record in history and saves the correction you reviewed."
       confirm-label="Apply correction"
       :action-id="UIA_BINDINGS.correctionConfirm.action.actionId"
       :busy="busy"
@@ -619,11 +619,11 @@ watch(
           <dd>{{ formatMoney(correctionPreview.original.amountPence) }}</dd>
         </div>
         <div>
-          <dt>Reversal</dt>
+          <dt>Amount removed</dt>
           <dd>{{ formatMoney(correctionPreview.reversal.amountPence) }}</dd>
         </div>
         <div v-if="correctionPreview.replacement">
-          <dt>Replacement</dt>
+          <dt>Corrected amount</dt>
           <dd>{{ formatMoney(correctionPreview.replacement.amountPence) }}</dd>
         </div>
       </dl>
