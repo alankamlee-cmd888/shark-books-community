@@ -151,7 +151,12 @@ run_log sg4_uib_static python3 "$REPO_ROOT/scripts/check_sbc7b2_r2_uib.py" || st
 run_log sg4_vite_build npm --prefix "$REPO_ROOT/workspace/ui" run build || stop "SG4_UI_B" "VITE_BUILD_FAIL" "Vite production build failed" 61
 run_log sg4_uia_postbuild python3 "$REPO_ROOT/scripts/check_sbc7b2_r1_uia.py" || stop "SG4_UI_B" "UIA_POSTBUILD_FAIL" "UI-A post-build check failed" 62
 run_log sg4_uib_postbuild python3 "$REPO_ROOT/scripts/check_sbc7b2_r2_uib.py" || stop "SG4_UI_B" "UIB_POSTBUILD_FAIL" "UI-B post-build check failed" 63
-write_gate "SG4_UI_B" "PASS" true "UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass."
+BUILD_DIST_EVIDENCE="$RESULT_DIR/vite-build-dist"
+rm -rf "$BUILD_DIST_EVIDENCE"
+cp -R "$WORKSPACE/dist" "$BUILD_DIST_EVIDENCE" || stop "SG4_UI_B" "VITE_EVIDENCE_COPY_FAIL" "Could not preserve generated Vite build output" 631
+rm -rf "$WORKSPACE/dist"
+git -C "$REPO_ROOT" checkout -- workspace/dist || stop "SG4_UI_B" "VITE_SOURCE_RESTORE_FAIL" "Could not restore tracked candidate dist after preserving generated build evidence" 632
+write_gate "SG4_UI_B" "PASS" true "UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass; generated dist preserved as evidence and tracked candidate dist restored before later gates."
 
 # SG5 — actual finite command-text parity
 PHASE="SG5_COMMAND_TEXT"

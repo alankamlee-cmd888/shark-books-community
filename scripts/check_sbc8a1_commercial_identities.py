@@ -3,10 +3,12 @@ import json,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 CONTRACT=Path(r"C:\SharkAutopilot\lanes\SBC\evidence\SBC8A1_CONTRACT_FREEZE.json")
+# Bounded SG8 proof-harness repair admitted by SBC8A1_REPAIR_PATH_AMENDMENT_20260930B.
+REPAIR_ALLOWED={"ci/run_sbc7b2_supergate_codemagic.sh","ci/run_sbc7b2_supergate_windows.ps1"}
 def git(*a): return subprocess.run(["git",*a],cwd=str(ROOT),text=True,capture_output=True,check=True).stdout.strip()
 def main():
  e=json.loads(CONTRACT.read_text(encoding="utf-8-sig")); problems=[]
- base=e["entry_sha"]; allowed=set(e["allowed_paths"])
+ base=e["entry_sha"]; allowed=set(e["allowed_paths"])|REPAIR_ALLOWED
  changed=set(filter(None,git("diff","--name-only",base).splitlines()))
  bad=sorted(changed-allowed)
  if bad:problems.append({"CHANGED_PATH_OUTSIDE_CONTRACT":bad})

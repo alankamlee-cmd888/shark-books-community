@@ -183,7 +183,13 @@ try {
     Run-Logged 'sg4_vite_build' { & $Node $NpmCli run build --prefix (Join-Path $Repo 'workspace\ui') }
     Run-Logged 'sg4_uia_postbuild' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r1_uia.py') }
     Run-Logged 'sg4_uib_postbuild' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r2_uib.py') }
-    Write-GateResult 'SG4_UI_B' 'PASS' 'UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass.'
+    $BuildDistEvidence = Join-Path $ResultDir 'vite-build-dist'
+    if (Test-Path $BuildDistEvidence) { Remove-Item $BuildDistEvidence -Recurse -Force }
+    Copy-Item (Join-Path $Workspace 'dist') $BuildDistEvidence -Recurse -Force
+    Remove-Item (Join-Path $Workspace 'dist') -Recurse -Force
+    & git -C $Repo checkout -- workspace/dist
+    if ($LASTEXITCODE -ne 0) { throw 'Could not restore tracked candidate dist after preserving generated build evidence.' }
+    Write-GateResult 'SG4_UI_B' 'PASS' 'UI-B receipts/documents/contacts/reports/settings contract and production Vite build pass; generated dist preserved as evidence and tracked candidate dist restored before later gates.'
 
     # SG5 — actual finite command-text parity over the reconciled Action Registry/controller
     Run-Logged 'sg5_r3_static' { python -B (Join-Path $Repo 'scripts\check_sbc7b2_r3_ft4.py') --repo $Repo }
