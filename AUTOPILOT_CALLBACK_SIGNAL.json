@@ -1,15 +1,15 @@
 {
-  "candidate_sha": null,
-  "emitted_at_utc": "2026-09-29T01:08:12.374683Z",
-  "event_id": "SIQI_SIQI_R2_F08_CACHE_PRESERVATION_RECONSTRUCTION_20af96761e1ff75a",
+  "candidate_sha": "2eee57d0080e801cf0f9523ba2b1c610f7a9d0c9",
+  "emitted_at_utc": "2026-09-30T09:37:08.350160Z",
+  "event_id": "SBC_SBC8_PRODUCTION_INTEGRATION_20260929A_7f404c9b2d05c79f",
   "event_type": "AUTOPILOT_LANE_READY",
-  "lane": "SIQI",
+  "lane": "SBC",
   "privacy": "metadata_only_no_local_paths_no_evidence_body",
-  "published_at_utc": "2026-09-29T01:08:13.845659Z",
+  "published_at_utc": "2026-09-30T09:37:10.642282Z",
   "purpose": "MTD Shark Autopilot terminal-event signal for ChatGPT Work.",
   "requires_chatgpt_resume": true,
   "schema_version": 1,
-  "stage": "POST_ASTRA_H_SUCCESSOR_COMPLETE_F08_CACHE_BOUNDARY_NARROWED",
+  "stage": "SBC8A1_CONTRACT_FROZEN_PASS",
   "status": "READY_CONTINUATION",
-  "task_id": "SIQI_R2_F08_CACHE_PRESERVATION_RECONSTRUCTION"
+  "task_id": "SBC8_PRODUCTION_INTEGRATION_20260929A"
 }
