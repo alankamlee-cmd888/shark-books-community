@@ -172,12 +172,12 @@ def static_gate(repo: Path) -> dict[str, object]:
 
     app_mod = text(repo, "workspace/shark-foundation/src/bank_application/mod.rs")
     for anchor in [
-        "BANK_APPLICATION_SCHEMA_VERSION: u32 = 5",
-        "SAVEPOINT shark_application_schema_v5",
+        "BANK_APPLICATION_SCHEMA_VERSION: u32 = 6",
+        "SAVEPOINT shark_application_schema_v6",
         "CREATE TABLE IF NOT EXISTS shark_contact",
         "CHECK(kind IN ('customer','supplier'))",
         "PRIMARY KEY(company_slug, contact_id)",
-        "VALUES(1, 5)",
+        "VALUES(1, 6)",
     ]:
         require(anchor in app_mod, f"schema-v5 anchor present: {anchor}")
     for inherited in [
@@ -186,16 +186,16 @@ def static_gate(repo: Path) -> dict[str, object]:
         "shark_receipt_bank_decision",
         "shark_owner_correction",
     ]:
-        require(f"CREATE TABLE IF NOT EXISTS {inherited}" in app_mod, f"schema v5 retains {inherited}")
+        require(f"CREATE TABLE IF NOT EXISTS {inherited}" in app_mod, f"schema v6 retains {inherited}")
 
     bank_tests = text(repo, "workspace/shark-foundation/src/bank_application/tests.rs")
     require(
-        "application_schema_v5_is_separate_from_beankeeper_schema_8" in bank_tests
-        and "assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 5);" in bank_tests,
-        "bank schema regression is explicitly advanced to v5",
+        "application_schema_v6_is_separate_from_beankeeper_schema_8" in bank_tests
+        and "assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 6);" in bank_tests,
+        "bank schema regression is explicitly advanced to v6",
     )
-    require("application_schema_v4_migrates_to_v5_without_dropping_batch_a_data" in bank_tests,
-            "v4 to v5 migration preservation regression is present")
+    require("application_schema_v4_migrates_to_v6_without_dropping_batch_a_data" in bank_tests,
+            "v4 to v6 migration preservation regression is present")
 
     contacts = text(repo, "workspace/shark-foundation/src/contact_application.rs")
     for anchor in [

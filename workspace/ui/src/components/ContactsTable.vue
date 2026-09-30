@@ -10,6 +10,8 @@ const columnHelper = createColumnHelper<typeof features, OwnerContactView>();
 const columns = columnHelper.columns([
   columnHelper.accessor("displayName", { header: "Name" }),
   columnHelper.accessor("kind", { header: "Type" }),
+  columnHelper.accessor("email", { header: "Email" }),
+  columnHelper.accessor("phone", { header: "Phone" }),
   columnHelper.accessor("updatedAt", { header: "Updated" }),
 ]);
 const table = useTable({ features, columns, get data() { return props.rows; } });
@@ -18,12 +20,14 @@ const table = useTable({ features, columns, get data() { return props.rows; } })
 <template>
   <div class="table-scroll" tabindex="0" aria-label="Contacts">
     <table class="owner-table">
-      <thead><tr><th>Name</th><th>Type</th><th>Updated</th><th><span class="visually-hidden">Edit</span></th></tr></thead>
+      <thead><tr><th>Name</th><th>Type</th><th>Email</th><th>Phone</th><th>Updated</th><th><span class="visually-hidden">Edit</span></th></tr></thead>
       <tbody>
-        <tr v-if="table.getRowModel().rows.length === 0"><td colspan="4" class="empty-cell">No contacts in this view.</td></tr>
+        <tr v-if="table.getRowModel().rows.length === 0"><td colspan="6" class="empty-cell">No contacts in this view.</td></tr>
         <tr v-for="row in table.getRowModel().rows" :key="row.original.contactId" :class="{ selected: row.original.contactId === selectedContactId }">
           <td><strong>{{ row.original.displayName }}</strong></td>
           <td>{{ readableToken(row.original.kind) }}</td>
+          <td>{{ row.original.email || "—" }}</td>
+          <td>{{ row.original.phone || "—" }}</td>
           <td>{{ row.original.updatedAt }}</td>
           <td class="action-cell"><button type="button" class="text-button" @click="emit('select', row.original)">Edit</button></td>
         </tr>

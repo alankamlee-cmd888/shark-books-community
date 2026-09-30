@@ -116,6 +116,9 @@ pub(crate) struct OwnerContactsSaveRequest {
     contact_id: String,
     kind: OwnerContactKind,
     display_name: String,
+    postal_address: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,6 +154,9 @@ pub(crate) struct OwnerContactView {
     contact_id: String,
     kind: OwnerContactKind,
     display_name: String,
+    postal_address: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
     created_by: String,
     created_at: String,
     updated_by: String,
@@ -166,6 +172,9 @@ impl TryFrom<ContactView> for OwnerContactView {
             contact_id: value.contact_id,
             kind: OwnerContactKind::from_persisted(&value.kind)?,
             display_name: value.display_name,
+            postal_address: value.postal_address,
+            email: value.email,
+            phone: value.phone,
             created_by: value.created_by,
             created_at: value.created_at,
             updated_by: value.updated_by,
@@ -245,26 +254,34 @@ pub(crate) struct OwnerReportSummary {
 fn core_contact(write: &OwnerContactsSaveRequest) -> OwnerSupportingDataResult<ContactWrite> {
     let record_id = core::RecordId::new(write.contact_id.clone())
         .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?;
-    match write.kind {
-        OwnerContactKind::Customer => {
-            let customer = core::Customer::new(record_id, write.display_name.clone())
-                .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?;
-            Ok(ContactWrite {
-                contact_id: customer.id().as_str().to_string(),
-                kind: write.kind.as_str().to_string(),
-                display_name: customer.display_name().to_string(),
-            })
-        }
-        OwnerContactKind::Supplier => {
-            let supplier = core::Supplier::new(record_id, write.display_name.clone())
-                .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?;
-            Ok(ContactWrite {
-                contact_id: supplier.id().as_str().to_string(),
-                kind: write.kind.as_str().to_string(),
-                display_name: supplier.display_name().to_string(),
-            })
-        }
-    }
+    let snapshot = match write.kind {
+        OwnerContactKind::Customer => core::Customer::with_contact_details(
+            record_id,
+            write.display_name.clone(),
+            write.postal_address.clone(),
+            write.email.clone(),
+            write.phone.clone(),
+        )
+        .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?
+        .snapshot(),
+        OwnerContactKind::Supplier => core::Supplier::with_contact_details(
+            record_id,
+            write.display_name.clone(),
+            write.postal_address.clone(),
+            write.email.clone(),
+            write.phone.clone(),
+        )
+        .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?
+        .snapshot(),
+    };
+    Ok(ContactWrite {
+        contact_id: snapshot.id().as_str().to_string(),
+        kind: write.kind.as_str().to_string(),
+        display_name: snapshot.display_name().to_string(),
+        postal_address: snapshot.postal_address().map(str::to_string),
+        email: snapshot.email().map(str::to_string),
+        phone: snapshot.phone().map(str::to_string),
+    })
 }
 
 fn checked_to_i64(value: i128, label: &str) -> OwnerSupportingDataResult<i64> {
@@ -537,6 +554,9 @@ mod tests {
             contact_id: " ".into(),
             kind: OwnerContactKind::Customer,
             display_name: "Customer".into(),
+            postal_address: None,
+            email: None,
+            phone: None,
         };
         assert!(core_contact(&invalid).is_err());
 
@@ -545,11 +565,28 @@ mod tests {
             contact_id: "customer-1".into(),
             kind: OwnerContactKind::Customer,
             display_name: " Customer Name ".into(),
+            postal_address: Some("  1 High Street  ".into()),
+            email: Some(" billing@example.test ".into()),
+            phone: Some(" 01234 567890 ".into()),
         };
         let write = core_contact(&valid).expect("valid core customer");
         assert_eq!(write.contact_id, "customer-1");
         assert_eq!(write.kind, "customer");
         assert_eq!(write.display_name, "Customer Name");
+        assert_eq!(write.postal_address.as_deref(), Some("1 High Street"));
+        assert_eq!(write.email.as_deref(), Some("billing@example.test"));
+        assert_eq!(write.phone.as_deref(), Some("01234 567890"));
+
+        let too_long = OwnerContactsSaveRequest {
+            books: books_ref(),
+            contact_id: "customer-2".into(),
+            kind: OwnerContactKind::Customer,
+            display_name: "x".repeat(201),
+            postal_address: None,
+            email: None,
+            phone: None,
+        };
+        assert!(core_contact(&too_long).is_err());
     }
 
     #[test]
@@ -561,7 +598,7 @@ mod tests {
             database_schema_version: 8,
             expected_database_schema_version: 8,
             books_format_version: 1,
-            application_schema_version: 5,
+            application_schema_version: 6,
             facade_api_version: 1,
             foundation_version: "0.0.1".into(),
             shell_version: "0.0.1".into(),
