@@ -115,6 +115,25 @@ fn valid_name(value: impl Into<String>) -> DomainResult<String> {
     if t.is_empty() || t.len() > 256 { return Err(DomainError::InvalidName("name/description must be 1-256 non-whitespace characters".into())); }
     Ok(t.into())
 }
+fn valid_commercial_name(value: impl Into<String>) -> DomainResult<String> {
+    let v = value.into(); let t = v.trim();
+    if t.is_empty() || t.len() > 200 || t.chars().any(|c| c == '\0' || c.is_control()) {
+        return Err(DomainError::InvalidName("commercial display name must be 1-200 bounded safe-text bytes".into()));
+    }
+    Ok(t.into())
+}
+fn valid_optional_contact_text(value: Option<String>, label: &str, max: usize) -> DomainResult<Option<String>> {
+    value.map(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(DomainError::InvalidName(format!("{label} must not be blank when supplied")));
+        }
+        if trimmed.len() > max || trimmed.chars().any(|c| c == '\0' || c.is_control()) {
+            return Err(DomainError::InvalidName(format!("{label} exceeds its bounded safe-text contract")));
+        }
+        Ok(trimmed.to_string())
+    }).transpose()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind { Manual, Csv, Ofx, Qfx, Document, Adapter }
@@ -202,11 +221,65 @@ impl Default for BookDomainSettings { fn default()->Self{Self{currency_code:DEFA
 impl BookDomainSettings { #[must_use] pub const fn currency_code(&self)->&'static str{self.currency_code} #[must_use] pub const fn accounting_basis(&self)->AccountingBasis{self.accounting_basis} }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Customer { id: RecordId, display_name: String }
-impl Customer { pub fn new(id:RecordId,name:impl Into<String>)->DomainResult<Self>{Ok(Self{id,display_name:valid_name(name)?})} #[must_use] pub fn id(&self)->&RecordId{&self.id} #[must_use] pub fn display_name(&self)->&str{&self.display_name} }
+pub struct CommercialPartySnapshot {
+    id: RecordId,
+    display_name: String,
+    postal_address: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+}
+impl CommercialPartySnapshot {
+    #[must_use] pub fn id(&self)->&RecordId{&self.id}
+    #[must_use] pub fn display_name(&self)->&str{&self.display_name}
+    #[must_use] pub fn postal_address(&self)->Option<&str>{self.postal_address.as_deref()}
+    #[must_use] pub fn email(&self)->Option<&str>{self.email.as_deref()}
+    #[must_use] pub fn phone(&self)->Option<&str>{self.phone.as_deref()}
+}
+fn commercial_party_snapshot(
+    id: RecordId,
+    name: impl Into<String>,
+    postal_address: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+) -> DomainResult<CommercialPartySnapshot> {
+    Ok(CommercialPartySnapshot {
+        id,
+        display_name: valid_commercial_name(name)?,
+        postal_address: valid_optional_contact_text(postal_address, "postal address", 500)?,
+        email: valid_optional_contact_text(email, "email", 254)?,
+        phone: valid_optional_contact_text(phone, "phone", 64)?,
+    })
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Supplier { id: RecordId, display_name: String }
-impl Supplier { pub fn new(id:RecordId,name:impl Into<String>)->DomainResult<Self>{Ok(Self{id,display_name:valid_name(name)?})} #[must_use] pub fn id(&self)->&RecordId{&self.id} #[must_use] pub fn display_name(&self)->&str{&self.display_name} }
+pub struct Customer { snapshot: CommercialPartySnapshot }
+impl Customer {
+    pub fn new(id:RecordId,name:impl Into<String>)->DomainResult<Self>{
+        Self::with_contact_details(id,name,None,None,None)
+    }
+    pub fn with_contact_details(
+        id:RecordId,name:impl Into<String>,postal_address:Option<String>,email:Option<String>,phone:Option<String>
+    )->DomainResult<Self>{
+        Ok(Self{snapshot:commercial_party_snapshot(id,name,postal_address,email,phone)?})
+    }
+    #[must_use] pub fn id(&self)->&RecordId{self.snapshot.id()}
+    #[must_use] pub fn display_name(&self)->&str{self.snapshot.display_name()}
+    #[must_use] pub fn snapshot(&self)->CommercialPartySnapshot{self.snapshot.clone()}
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supplier { snapshot: CommercialPartySnapshot }
+impl Supplier {
+    pub fn new(id:RecordId,name:impl Into<String>)->DomainResult<Self>{
+        Self::with_contact_details(id,name,None,None,None)
+    }
+    pub fn with_contact_details(
+        id:RecordId,name:impl Into<String>,postal_address:Option<String>,email:Option<String>,phone:Option<String>
+    )->DomainResult<Self>{
+        Ok(Self{snapshot:commercial_party_snapshot(id,name,postal_address,email,phone)?})
+    }
+    #[must_use] pub fn id(&self)->&RecordId{self.snapshot.id()}
+    #[must_use] pub fn display_name(&self)->&str{self.snapshot.display_name()}
+    #[must_use] pub fn snapshot(&self)->CommercialPartySnapshot{self.snapshot.clone()}
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvoiceStatus { Draft, Issued, Paid, Cancelled }
@@ -274,6 +347,25 @@ mod tests {
     #[test] fn owner_accounts_are_equity(){for code in ["3000","3100"]{assert_eq!(DEFAULT_CHART.iter().find(|x|x.code==code).unwrap().account_type,AccountType::Equity);}}
     #[test] fn suspense_is_asset(){assert_eq!(DEFAULT_CHART.iter().find(|x|x.code=="9000").unwrap().account_type,AccountType::Asset);}
     #[test] fn blank_ids_and_names_rejected(){assert!(RecordId::new("  ").is_err());assert!(Customer::new(id("c")," ").is_err());assert!(Supplier::new(id("s"),"").is_err());}
+    #[test] fn commercial_party_snapshot_preserves_contact_details(){
+        let customer=Customer::with_contact_details(id("customer-1"),"Acme",Some("1 High Street".into()),Some("billing@example.test".into()),Some("01234 567890".into())).unwrap();
+        let snapshot=customer.snapshot();
+        assert_eq!(snapshot.id().as_str(),"customer-1");
+        assert_eq!(snapshot.display_name(),"Acme");
+        assert_eq!(snapshot.postal_address(),Some("1 High Street"));
+        assert_eq!(snapshot.email(),Some("billing@example.test"));
+        assert_eq!(snapshot.phone(),Some("01234 567890"));
+    }
+    #[test] fn commercial_party_optional_fields_are_bounded_and_trimmed(){
+        let customer=Customer::with_contact_details(id("customer-2"),"Acme",Some("  Address  ".into()),Some(" a@example.test ".into()),None).unwrap();
+        let snapshot=customer.snapshot();
+        assert_eq!(snapshot.postal_address(),Some("Address"));
+        assert_eq!(snapshot.email(),Some("a@example.test"));
+        assert!(Customer::with_contact_details(id("bad-email"),"Acme",None,Some("x".repeat(255)),None).is_err());
+        assert!(Supplier::with_contact_details(id("bad-phone"),"Supplier",None,None,Some("x".repeat(65))).is_err());
+        assert!(Customer::new(id("name-200"), "x".repeat(200)).is_ok());
+        assert!(Customer::new(id("name-201"), "x".repeat(201)).is_err());
+    }
     #[test] fn invoice_date_order_enforced(){let issue=d();assert!(Invoice::new(id("inv"),id("c"),issue,Some(Date::new(2026,9,7).unwrap()),a(1000),InvoiceStatus::Issued).is_err());assert!(Invoice::new(id("inv2"),id("c"),issue,Some(issue),a(1000),InvoiceStatus::Issued).is_ok());}
     #[test] fn provenance_rejects_blanks(){assert!(SourceProvenance::new(SourceKind::Csv,Some(" ".into()),None,None).is_err());assert!(SourceProvenance::new(SourceKind::Ofx,Some("ofx:abc".into()),None,None).is_ok());}
     #[test] fn payment_preserves_provenance(){let p=Payment::new(id("p1"),d(),a(1500),PaymentDirection::Inbound,SettlementAccount::BusinessBank,Some(id("c")),SourceProvenance::new(SourceKind::Csv,Some("file:12".into()),Some("sha256:abc".into()),None).unwrap());assert_eq!(p.amount().minor(),1500);assert_eq!(p.provenance().kind(),SourceKind::Csv);}

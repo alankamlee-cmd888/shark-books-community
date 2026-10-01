@@ -372,7 +372,7 @@ mod tests {
         })
         .expect("open encrypted books command");
         assert_eq!(opened.metadata.company_name, "Shark SBC-1D Windows Proof");
-        assert_eq!(opened.metadata.application_schema_version, 5);
+        assert_eq!(opened.metadata.application_schema_version, 6);
 
         let verified = books_verify(OpenBooksRequest {
             file_name: open.file_name.clone(),

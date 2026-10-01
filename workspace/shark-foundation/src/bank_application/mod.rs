@@ -7,7 +7,7 @@
 
 use super::*;
 
-pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 5;
+pub(super) const BANK_APPLICATION_SCHEMA_VERSION: u32 = 6;
 pub(super) const BUSINESS_BANK_ACCOUNT_CODE: &str = "1000";
 pub(super) const MAX_ACTIVITY_BATCH: usize = 10_000;
 pub(super) const MAX_ACTIVITY_PAGE: i64 = 500;
@@ -184,7 +184,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
     }
 
     db.conn()
-        .execute_batch("SAVEPOINT shark_application_schema_v5")
+        .execute_batch("SAVEPOINT shark_application_schema_v6")
         .map_err(sqlite_error)?;
     let migration = db.conn().execute_batch(
         r#"
@@ -341,26 +341,64 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
             contact_id TEXT NOT NULL,
             kind TEXT NOT NULL CHECK(kind IN ('customer','supplier')),
             display_name TEXT NOT NULL,
+            postal_address TEXT,
+            email TEXT,
+            phone TEXT,
             created_by TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_by TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(company_slug, contact_id)
         );
-        INSERT INTO shark_application_meta(id, schema_version)
-            VALUES(1, 5)
-            ON CONFLICT(id) DO UPDATE SET schema_version = excluded.schema_version
-            WHERE shark_application_meta.schema_version < excluded.schema_version;
         "#,
     );
     if let Err(error) = migration {
         let _ = db.conn().execute_batch(
-            "ROLLBACK TO shark_application_schema_v5; RELEASE shark_application_schema_v5",
+            "ROLLBACK TO shark_application_schema_v6; RELEASE shark_application_schema_v6",
         );
         return Err(sqlite_error(error));
     }
+
+    let contact_migration = (|| -> FoundationResult<()> {
+        let contact_columns = {
+            let mut statement = db
+                .conn()
+                .prepare("PRAGMA table_info(shark_contact)")
+                .map_err(sqlite_error)?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(sqlite_error)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(sqlite_error)?
+        };
+        for (column, sql) in [
+            ("postal_address", "ALTER TABLE shark_contact ADD COLUMN postal_address TEXT"),
+            ("email", "ALTER TABLE shark_contact ADD COLUMN email TEXT"),
+            ("phone", "ALTER TABLE shark_contact ADD COLUMN phone TEXT"),
+        ] {
+            if !contact_columns.iter().any(|existing| existing == column) {
+                db.conn().execute_batch(sql).map_err(sqlite_error)?;
+            }
+        }
+        db.conn()
+            .execute(
+                "INSERT INTO shark_application_meta(id, schema_version)
+                 VALUES(1, 6)
+                 ON CONFLICT(id) DO UPDATE SET schema_version = excluded.schema_version
+                 WHERE shark_application_meta.schema_version < excluded.schema_version",
+                [],
+            )
+            .map_err(sqlite_error)?;
+        Ok(())
+    })();
+    if let Err(error) = contact_migration {
+        let _ = db.conn().execute_batch(
+            "ROLLBACK TO shark_application_schema_v6; RELEASE shark_application_schema_v6",
+        );
+        return Err(error);
+    }
+
     db.conn()
-        .execute_batch("RELEASE shark_application_schema_v5")
+        .execute_batch("RELEASE shark_application_schema_v6")
         .map_err(sqlite_error)?;
 
     let observed: i64 = db

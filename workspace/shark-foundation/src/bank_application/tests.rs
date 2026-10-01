@@ -130,9 +130,9 @@ fn confirm_match_for(
 }
 
 #[test]
-fn application_schema_v5_is_separate_from_beankeeper_schema_8() {
+fn application_schema_v6_is_separate_from_beankeeper_schema_8() {
     let (books, path) = test_books("schema");
-    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 5);
+    assert_eq!(SHARK_APPLICATION_SCHEMA_VERSION, 6);
     assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     let observed: i64 = books
         .db
@@ -143,13 +143,13 @@ fn application_schema_v5_is_separate_from_beankeeper_schema_8() {
             |row| row.get(0),
         )
         .expect("Shark application schema row");
-    assert_eq!(observed, 5);
+    assert_eq!(observed, 6);
     drop(books);
     remove_sqlite_artifacts(&path);
 }
 
 #[test]
-fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
+fn application_schema_v4_migrates_to_v6_without_dropping_batch_a_data() {
     let (books, path) = test_books("v4-v5-preservation");
     books
         .db
@@ -206,7 +206,7 @@ fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
             |row| row.get(0),
         )
         .expect("application schema version");
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     for table in ["shark_contact", "shark_owner_correction"] {
         let count: i64 = books
             .db
@@ -228,6 +228,66 @@ fn application_schema_v4_migrates_to_v5_without_dropping_batch_a_data() {
         books.document("migration-doc").is_ok(),
         "referenced document survives"
     );
+    assert_eq!(books.verify().expect("Beankeeper schema"), 8);
+    drop(books);
+    remove_sqlite_artifacts(&path);
+}
+
+#[test]
+fn application_schema_v5_migrates_to_v6_preserving_existing_contacts() {
+    let (books, path) = test_books("v5-v6-contact-preservation");
+    books
+        .db
+        .conn()
+        .execute_batch(
+            "INSERT INTO shark_contact(
+                company_slug, contact_id, kind, display_name, created_by, updated_by
+             ) VALUES('bank-test','legacy-customer','customer','Legacy Customer','local-owner','local-owner');",
+        )
+        .expect("seed v6-shaped contact before v5 reconstruction");
+    books
+        .db
+        .conn()
+        .execute_batch(
+            "CREATE TABLE shark_contact_v5 (
+                company_slug TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('customer','supplier')),
+                display_name TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(company_slug, contact_id)
+             );
+             INSERT INTO shark_contact_v5(
+                company_slug, contact_id, kind, display_name,
+                created_by, created_at, updated_by, updated_at
+             )
+             SELECT company_slug, contact_id, kind, display_name,
+                    created_by, created_at, updated_by, updated_at
+             FROM shark_contact;
+             DROP TABLE shark_contact;
+             ALTER TABLE shark_contact_v5 RENAME TO shark_contact;
+             UPDATE shark_application_meta SET schema_version = 5 WHERE id = 1;",
+        )
+        .expect("reconstruct v5 contact schema");
+    ensure_application_schema(&books.db).expect("migrate v5 to v6");
+    let version: i64 = books
+        .db
+        .conn()
+        .query_row(
+            "SELECT schema_version FROM shark_application_meta WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("application schema version");
+    assert_eq!(version, 6);
+    let legacy = books.contact("legacy-customer").expect("legacy contact");
+    assert_eq!(legacy.display_name, "Legacy Customer");
+    assert_eq!(legacy.postal_address, None);
+    assert_eq!(legacy.email, None);
+    assert_eq!(legacy.phone, None);
     assert_eq!(books.verify().expect("Beankeeper schema"), 8);
     drop(books);
     remove_sqlite_artifacts(&path);

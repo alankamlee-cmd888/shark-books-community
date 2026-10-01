@@ -48,7 +48,7 @@ pub use owner_read_application::{
 };
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;
-pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 5;
+pub const SHARK_APPLICATION_SCHEMA_VERSION: u32 = 6;
 pub const SHARK_BOOKS_FORMAT_VERSION: u32 = 1;
 pub const BEANKEEPER_DATABASE_SCHEMA_VERSION: i64 = 8;
 
@@ -1149,7 +1149,7 @@ mod tests {
             metadata.application_schema_version,
             SHARK_APPLICATION_SCHEMA_VERSION
         );
-        assert_eq!(metadata.application_schema_version, 5);
+        assert_eq!(metadata.application_schema_version, 6);
         assert_eq!(metadata.facade_api_version, SHARK_FACADE_API_VERSION);
         let migration = books.migration_metadata().expect("migration metadata");
         assert_eq!(
@@ -1257,7 +1257,7 @@ mod tests {
                 .metadata()
                 .expect("metadata")
                 .application_schema_version,
-            5
+            6
         );
         drop(books);
 
@@ -1276,7 +1276,7 @@ mod tests {
                 .metadata()
                 .expect("reopened metadata")
                 .application_schema_version,
-            5
+            6
         );
         drop(reopened);
 
@@ -1328,7 +1328,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("read migrated application schema");
-        assert_eq!(observed, 5);
+        assert_eq!(observed, 6);
         assert_eq!(reopened.verify().expect("Beankeeper schema"), 8);
         drop(reopened);
 

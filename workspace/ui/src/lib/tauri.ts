@@ -781,6 +781,7 @@ export interface OwnerReceiptDecisionReceipt {
 export type OwnerContactKind = "customer" | "supplier";
 export interface OwnerContactView {
   bridgeVersion: number; contactId: string; kind: OwnerContactKind; displayName: string;
+  postalAddress: string | null; email: string | null; phone: string | null;
   createdBy: string; createdAt: string; updatedBy: string; updatedAt: string;
 }
 export interface OwnerContactsListOutcome { bridgeVersion: number; contacts: OwnerContactView[]; }
@@ -834,8 +835,26 @@ export function rejectReceiptBank(books: BooksRef, suggestionId: string): Promis
 export function listContacts(books: BooksRef, kind?: OwnerContactKind, limit = 200): Promise<OwnerContactsListOutcome> {
   return nativeInvoke("owner_contacts_list", { request: { books, kind, limit } });
 }
-export function saveContact(books: BooksRef, contactId: string, kind: OwnerContactKind, displayName: string): Promise<OwnerContactSaveOutcome> {
-  return nativeInvoke("owner_contacts_save", { request: { books, contactId, kind, displayName } });
+export function saveContact(
+  books: BooksRef,
+  contactId: string,
+  kind: OwnerContactKind,
+  displayName: string,
+  postalAddress?: string,
+  email?: string,
+  phone?: string,
+): Promise<OwnerContactSaveOutcome> {
+  return nativeInvoke("owner_contacts_save", {
+    request: {
+      books,
+      contactId,
+      kind,
+      displayName,
+      postalAddress: postalAddress?.trim() || null,
+      email: email?.trim() || null,
+      phone: phone?.trim() || null,
+    },
+  });
 }
 export function booksInfo(books: BooksRef): Promise<OwnerSettingsBooksInfo> {
   return nativeInvoke("owner_settings_books_info", { request: { books } });
