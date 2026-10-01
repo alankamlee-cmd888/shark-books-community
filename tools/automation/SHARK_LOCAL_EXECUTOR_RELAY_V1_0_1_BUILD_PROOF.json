@@ -1,0 +1,35 @@
+{
+  "document_type": "SHARK_LOCAL_EXECUTOR_RELAY_V1_0_1_BUILD_PROOF",
+  "date": "2026-09-19",
+  "status": "OFFLINE_PASS_READY_FOR_LIVE_UPDATE",
+  "relay_sha256": "97647552e70466fbdbd863e9c178bdd6bec3064f3ef41f3144b115798eec121a",
+  "relay_git_blob": "0f75971084f35fddd1639825bb93944334632272",
+  "tests_sha256": "ef7afc40e21a8c6a17095f814c4cb7aa964582755037fdb43fe31beef6d44258",
+  "tests_git_blob": "2fa02989e4cd6da6c0845dea777febb5f8dc157d",
+  "schema_sha256": "32e3b54efa9034dcc9cd8bc3463b100634a5ab49034949e6a2d30e35032c7fc0",
+  "candidate_zip_sha256": "e163c2b58126d357c8484138ff9200a5e4dd80f6c80ecd1e7f407bd4a209df9f",
+  "outer_update_bundle_sha256": "2797e157047a613becc3c9d2a474776a9478b697f26dd586352efa49d25bcc75",
+  "updater_sha256": "be341ce449f2b8a025febdf8784edd976e96ff97458193d3d36b5530a9bac833",
+  "offline_tests": {"count": 19, "passed": 19, "failed": 0},
+  "live_aut1d_event": {
+    "task_id": "SLE-AUT1D-RELAY-PROOF-001",
+    "event_id": "d666844e2f78d63e7255fa94706f4ed5e6ec8a3fd567adef4872547a89bccad5",
+    "terminal_artifact_sha256": "06984e643591ee12d09d55c7c55d089c2a87bebb71926abef1a69e04b5504ae3",
+    "terminal_artifact_size_bytes": 1002,
+    "terminal_state": "COMPLETED",
+    "source_head": "6233a44c802c1205eb5958c5037b3df294c97d99",
+    "source_status_unchanged": true
+  },
+  "repair": {
+    "class": "WINDOWS_DROPBOX_TRANSIENT_ATOMIC_REPLACE_CONTENTION",
+    "retry_window_seconds": 15.0,
+    "initial_delay_seconds": 0.05,
+    "maximum_delay_seconds": 0.5,
+    "retryable": ["PermissionError", "WinError 5", "WinError 32"],
+    "persistent_failure": "FAIL_CLOSED"
+  },
+  "network_authority": false,
+  "git_authority": false,
+  "source_write_authority": false,
+  "public_release_authority": false
+}
