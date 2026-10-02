@@ -350,6 +350,186 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(company_slug, contact_id)
         );
+        CREATE TABLE IF NOT EXISTS shark_quote (
+            company_slug TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            document_kind TEXT NOT NULL CHECK(document_kind IN ('quote','estimate')),
+            state TEXT NOT NULL CHECK(state IN ('draft','issued','accepted','rejected','expired','cancelled')),
+            customer_id TEXT NOT NULL,
+            customer_display_name TEXT NOT NULL,
+            customer_postal_address TEXT,
+            customer_email TEXT,
+            customer_phone TEXT,
+            conversion_eligible INTEGER NOT NULL DEFAULT 0 CHECK(conversion_eligible IN (0,1)),
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(company_slug, quote_id),
+            FOREIGN KEY(company_slug, customer_id) REFERENCES shark_contact(company_slug, contact_id) ON DELETE RESTRICT,
+            CHECK(
+                (state = 'accepted' AND conversion_eligible = 1)
+                OR (state <> 'accepted' AND conversion_eligible = 0)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_shark_quote_owner_list
+            ON shark_quote(company_slug, updated_at, quote_id);
+        CREATE TABLE IF NOT EXISTS shark_quote_line (
+            company_slug TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            line_id TEXT NOT NULL,
+            description TEXT NOT NULL,
+            quantity_subunits INTEGER NOT NULL CHECK(quantity_subunits > 0),
+            unit_price_minor INTEGER NOT NULL CHECK(unit_price_minor >= 0),
+            position INTEGER NOT NULL CHECK(position > 0),
+            PRIMARY KEY(company_slug, quote_id, line_id),
+            UNIQUE(company_slug, quote_id, position),
+            FOREIGN KEY(company_slug, quote_id) REFERENCES shark_quote(company_slug, quote_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS shark_quote_issue_snapshot (
+            company_slug TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            commercial_number TEXT NOT NULL,
+            document_kind TEXT NOT NULL CHECK(document_kind IN ('quote','estimate')),
+            customer_id TEXT NOT NULL,
+            customer_display_name TEXT NOT NULL,
+            customer_postal_address TEXT,
+            customer_email TEXT,
+            customer_phone TEXT,
+            total_minor INTEGER NOT NULL CHECK(total_minor >= 0),
+            line_count INTEGER NOT NULL CHECK(line_count > 0),
+            issued_by TEXT NOT NULL,
+            issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(company_slug, quote_id),
+            UNIQUE(company_slug, commercial_number),
+            FOREIGN KEY(company_slug, quote_id) REFERENCES shark_quote(company_slug, quote_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS shark_quote_issue_line (
+            company_slug TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            line_id TEXT NOT NULL,
+            description TEXT NOT NULL,
+            quantity_subunits INTEGER NOT NULL CHECK(quantity_subunits > 0),
+            unit_price_minor INTEGER NOT NULL CHECK(unit_price_minor >= 0),
+            position INTEGER NOT NULL CHECK(position > 0),
+            PRIMARY KEY(company_slug, quote_id, line_id),
+            UNIQUE(company_slug, quote_id, position),
+            FOREIGN KEY(company_slug, quote_id) REFERENCES shark_quote_issue_snapshot(company_slug, quote_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE IF NOT EXISTS shark_quote_mutation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_slug TEXT NOT NULL,
+            quote_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'create_draft','set_customer','add_line','replace_line','remove_line',
+                'issue','accepted','rejected','expired','cancelled'
+            )),
+            before_json TEXT,
+            after_json TEXT,
+            actor TEXT NOT NULL,
+            occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(company_slug, quote_id) REFERENCES shark_quote(company_slug, quote_id) ON DELETE RESTRICT,
+            CHECK(before_json IS NOT NULL OR after_json IS NOT NULL)
+        );
+        CREATE INDEX IF NOT EXISTS idx_shark_quote_mutation_owner_history
+            ON shark_quote_mutation(company_slug, quote_id, id);
+
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_no_delete
+        BEFORE DELETE ON shark_quote
+        BEGIN
+            SELECT RAISE(ABORT, 'commercial documents are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_valid_state_transition
+        BEFORE UPDATE OF state ON shark_quote
+        WHEN NOT (
+            NEW.state = OLD.state
+            OR (OLD.state = 'draft' AND NEW.state = 'issued')
+            OR (OLD.state = 'issued' AND NEW.state IN ('accepted','rejected','expired','cancelled'))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid quote or estimate state transition');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_issued_facts_immutable
+        BEFORE UPDATE ON shark_quote
+        WHEN OLD.state <> 'draft' AND (
+            NEW.document_kind IS NOT OLD.document_kind
+            OR NEW.customer_id IS NOT OLD.customer_id
+            OR NEW.customer_display_name IS NOT OLD.customer_display_name
+            OR NEW.customer_postal_address IS NOT OLD.customer_postal_address
+            OR NEW.customer_email IS NOT OLD.customer_email
+            OR NEW.customer_phone IS NOT OLD.customer_phone
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial facts are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_line_insert_draft_only
+        BEFORE INSERT ON shark_quote_line
+        WHEN (SELECT state FROM shark_quote
+              WHERE company_slug = NEW.company_slug AND quote_id = NEW.quote_id) <> 'draft'
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial lines are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_line_update_draft_only
+        BEFORE UPDATE ON shark_quote_line
+        WHEN (SELECT state FROM shark_quote
+              WHERE company_slug = OLD.company_slug AND quote_id = OLD.quote_id) <> 'draft'
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial lines are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_line_delete_draft_only
+        BEFORE DELETE ON shark_quote_line
+        WHEN (SELECT state FROM shark_quote
+              WHERE company_slug = OLD.company_slug AND quote_id = OLD.quote_id) <> 'draft'
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial lines are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_snapshot_draft_insert_only
+        BEFORE INSERT ON shark_quote_issue_snapshot
+        WHEN (SELECT state FROM shark_quote
+              WHERE company_slug = NEW.company_slug AND quote_id = NEW.quote_id) <> 'draft'
+        BEGIN
+            SELECT RAISE(ABORT, 'issued snapshot requires draft state');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_snapshot_no_update
+        BEFORE UPDATE ON shark_quote_issue_snapshot
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial snapshot is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_snapshot_no_delete
+        BEFORE DELETE ON shark_quote_issue_snapshot
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial snapshot is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_issue_line_bounded_insert
+        BEFORE INSERT ON shark_quote_issue_line
+        WHEN (SELECT COUNT(*) FROM shark_quote_issue_line
+              WHERE company_slug = NEW.company_slug AND quote_id = NEW.quote_id)
+             >=
+             (SELECT line_count FROM shark_quote_issue_snapshot
+              WHERE company_slug = NEW.company_slug AND quote_id = NEW.quote_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial snapshot line count is immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_issue_line_no_update
+        BEFORE UPDATE ON shark_quote_issue_line
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial snapshot lines are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_issue_line_no_delete
+        BEFORE DELETE ON shark_quote_issue_line
+        BEGIN
+            SELECT RAISE(ABORT, 'issued commercial snapshot lines are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_mutation_no_update
+        BEFORE UPDATE ON shark_quote_mutation
+        BEGIN
+            SELECT RAISE(ABORT, 'quote mutation history is append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_shark_quote_mutation_no_delete
+        BEFORE DELETE ON shark_quote_mutation
+        BEGIN
+            SELECT RAISE(ABORT, 'quote mutation history is append-only');
+        END;
         "#,
     );
     if let Err(error) = migration {

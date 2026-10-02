@@ -789,6 +789,43 @@ export type OwnerContactSaveOutcome =
   | { status: "created"; contact: OwnerContactView }
   | { status: "updated"; contact: OwnerContactView }
   | { status: "alreadyCurrent"; contact: OwnerContactView };
+export type QuoteKind = "quote" | "estimate";
+export type QuoteState = "draft" | "issued" | "accepted" | "rejected" | "expired" | "cancelled";
+export type QuoteOutcomeState = "accepted" | "rejected" | "expired" | "cancelled";
+export interface OwnerQuoteLineView {
+  lineId: string; description: string; quantitySubunits: number; unitPricePence: number;
+  totalPence: number; position: number;
+}
+export interface OwnerQuoteCustomerSnapshotView {
+  customerId: string; displayName: string; postalAddress: string | null;
+  email: string | null; phone: string | null;
+}
+export interface OwnerIssuedQuoteSnapshotView {
+  commercialNumber: string; kind: QuoteKind; customer: OwnerQuoteCustomerSnapshotView;
+  lines: OwnerQuoteLineView[]; totalPence: number; issuedBy: string; issuedAt: string;
+}
+export interface OwnerQuoteView {
+  bridgeVersion: number; quoteId: string; kind: QuoteKind; state: QuoteState;
+  customer: OwnerQuoteCustomerSnapshotView; lines: OwnerQuoteLineView[]; totalPence: number;
+  issuedSnapshot: OwnerIssuedQuoteSnapshotView | null; conversionEligible: boolean;
+  createdBy: string; createdAt: string; updatedBy: string; updatedAt: string;
+}
+export interface OwnerQuoteMutationView {
+  mutationId: number; quoteId: string; action: string;
+  before: OwnerQuoteView | null; after: OwnerQuoteView | null;
+  actor: string; occurredAt: string;
+}
+export interface OwnerQuotesListOutcome {
+  bridgeVersion: number; quotes: OwnerQuoteView[]; nonPosting: true;
+}
+export interface OwnerQuoteDetailOutcome {
+  bridgeVersion: number; quote: OwnerQuoteView; history: OwnerQuoteMutationView[];
+  nonPosting: true; invoiceCreated: false;
+}
+export interface OwnerQuoteMutationOutcome {
+  bridgeVersion: number; quote: OwnerQuoteView; mutation: OwnerQuoteMutationView;
+  nonPosting: true; invoiceCreated: false; requiresFurtherAutomaticAction: false;
+}
 export interface OwnerSettingsBooksInfo {
   bridgeVersion: number; booksId: string; companyName: string; databaseSchemaVersion: number;
   expectedDatabaseSchemaVersion: number; booksFormatVersion: number; applicationSchemaVersion: number;
@@ -855,6 +892,78 @@ export function saveContact(
       phone: phone?.trim() || null,
     },
   });
+}
+// SBC-8A2 uses the already-registered supporting-data commands with an explicit
+// operation discriminator. This preserves the frozen native handler allow-list.
+export function listQuotes(
+  books: BooksRef,
+  kind?: QuoteKind,
+  state?: QuoteState,
+  limit = 200,
+): Promise<OwnerQuotesListOutcome> {
+  return nativeInvoke("owner_contacts_list", {
+    request: { books, operation: "quotesList", kind: kind ?? null, state: state ?? null, limit },
+  });
+}
+export function quoteDetail(
+  books: BooksRef,
+  quoteId: string,
+  limit = 200,
+): Promise<OwnerQuoteDetailOutcome> {
+  return nativeInvoke("owner_contacts_list", {
+    request: { books, operation: "quoteDetail", quoteId, limit },
+  });
+}
+function mutateQuote(request: Record<string, unknown>): Promise<OwnerQuoteMutationOutcome> {
+  return nativeInvoke("owner_contacts_save", { request });
+}
+export function createQuoteDraft(
+  books: BooksRef,
+  quoteId: string,
+  kind: QuoteKind,
+  customerId: string,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({ books, operation: "createDraft", quoteId, kind, customerId });
+}
+export function setQuoteCustomer(
+  books: BooksRef,
+  quoteId: string,
+  customerId: string,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({ books, operation: "setCustomer", quoteId, customerId });
+}
+export function saveQuoteLine(
+  books: BooksRef,
+  quoteId: string,
+  lineId: string,
+  description: string,
+  quantitySubunits: number,
+  unitPricePence: number,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({
+    books, operation: "saveLine", quoteId, lineId, description, quantitySubunits, unitPricePence,
+  });
+}
+export function removeQuoteLine(
+  books: BooksRef,
+  quoteId: string,
+  lineId: string,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({ books, operation: "removeLine", quoteId, lineId });
+}
+export function issueQuote(
+  books: BooksRef,
+  quoteId: string,
+  commercialNumber: string,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({ books, operation: "issue", quoteId, commercialNumber });
+}
+export function transitionQuote(
+  books: BooksRef,
+  quoteId: string,
+  target: QuoteOutcomeState,
+): Promise<OwnerQuoteMutationOutcome> {
+  return mutateQuote({ books, operation: "transition", quoteId, target });
 }
 export function booksInfo(books: BooksRef): Promise<OwnerSettingsBooksInfo> {
   return nativeInvoke("owner_settings_books_info", { request: { books } });

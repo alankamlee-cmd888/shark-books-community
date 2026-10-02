@@ -28,6 +28,7 @@ mod contact_application;
 mod document_application;
 mod mutation_audit_application;
 mod owner_read_application;
+mod quote_application;
 pub use bank_application::{
     BankActivityPersistKind, BankActivityPersistOutcome, BankActivityReviewKind,
     BankActivityReviewOutcome, BankActivityView, BankActivityWrite, BankMatchPersistOutcome,
@@ -45,6 +46,10 @@ pub use mutation_audit_application::{
 };
 pub use owner_read_application::{
     OwnerCorrectionRead, OwnerDocumentRead, OwnerMoneyRecordDetailRead, OwnerMoneyRecordRead,
+};
+pub use quote_application::{
+    IssuedQuoteSnapshotView, QuoteCustomerSnapshotView, QuoteDraftWrite, QuoteKind, QuoteLineView,
+    QuoteLineWrite, QuoteMutationOutcome, QuoteMutationView, QuoteState, QuoteView,
 };
 
 pub const SHARK_FACADE_API_VERSION: u32 = 1;

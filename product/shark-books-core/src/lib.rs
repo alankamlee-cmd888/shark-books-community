@@ -15,6 +15,7 @@ pub type DomainResult<T> = Result<T, DomainError>;
 pub enum DomainError {
     InvalidDate(String), InvalidAmount(String), InvalidId(String), InvalidName(String),
     InvalidBusinessUse(String), InvalidInvoiceDates(String), InvalidProvenance(String),
+    InvalidTransition(String), Conflict(String),
     ArithmeticOverflow,
 }
 impl fmt::Display for DomainError {
@@ -22,7 +23,8 @@ impl fmt::Display for DomainError {
         match self {
             Self::InvalidDate(s) | Self::InvalidAmount(s) | Self::InvalidId(s) |
             Self::InvalidName(s) | Self::InvalidBusinessUse(s) |
-            Self::InvalidInvoiceDates(s) | Self::InvalidProvenance(s) => f.write_str(s),
+            Self::InvalidInvoiceDates(s) | Self::InvalidProvenance(s) |
+            Self::InvalidTransition(s) | Self::Conflict(s) => f.write_str(s),
             Self::ArithmeticOverflow => f.write_str("integer arithmetic overflow"),
         }
     }
@@ -121,6 +123,19 @@ fn valid_commercial_name(value: impl Into<String>) -> DomainResult<String> {
         return Err(DomainError::InvalidName("commercial display name must be 1-200 bounded safe-text bytes".into()));
     }
     Ok(t.into())
+}
+fn valid_commercial_text(value: impl Into<String>, label: &str, max: usize) -> DomainResult<String> {
+    let value = value.into();
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > max
+        || trimmed.chars().any(|character| character == '\0' || character.is_control())
+    {
+        return Err(DomainError::InvalidName(format!(
+            "{label} must be 1-{max} bounded non-control characters"
+        )));
+    }
+    Ok(trimmed.to_string())
 }
 fn valid_optional_contact_text(value: Option<String>, label: &str, max: usize) -> DomainResult<Option<String>> {
     value.map(|raw| {
@@ -281,6 +296,187 @@ impl Supplier {
     #[must_use] pub fn snapshot(&self)->CommercialPartySnapshot{self.snapshot.clone()}
 }
 
+/// Quote and estimate facts are commercial-only and never create ledger postings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuoteKind { Quote, Estimate }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuoteState { Draft, Issued, Accepted, Rejected, Expired, Cancelled }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CommercialNumber(String);
+impl CommercialNumber {
+    pub fn new(value: impl Into<String>) -> DomainResult<Self> {
+        Ok(Self(valid_commercial_text(value, "commercial number", 64)?))
+    }
+    #[must_use] pub fn as_str(&self) -> &str { &self.0 }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommercialLine {
+    id: RecordId,
+    description: String,
+    quantity_subunits: i64,
+    unit_price_minor: i64,
+}
+impl CommercialLine {
+    pub fn new(
+        id: RecordId,
+        description: impl Into<String>,
+        quantity_subunits: i64,
+        unit_price_minor: i64,
+    ) -> DomainResult<Self> {
+        if quantity_subunits <= 0 {
+            return Err(DomainError::InvalidAmount(
+                "commercial quantity must be positive integer subunits".into(),
+            ));
+        }
+        if unit_price_minor < 0 {
+            return Err(DomainError::InvalidAmount(
+                "commercial unit price must be non-negative whole pence".into(),
+            ));
+        }
+        let line = Self {
+            id,
+            description: valid_commercial_text(description, "line description", 500)?,
+            quantity_subunits,
+            unit_price_minor,
+        };
+        line.total_minor()?;
+        Ok(line)
+    }
+    #[must_use] pub fn id(&self) -> &RecordId { &self.id }
+    #[must_use] pub fn description(&self) -> &str { &self.description }
+    #[must_use] pub const fn quantity_subunits(&self) -> i64 { self.quantity_subunits }
+    #[must_use] pub const fn unit_price_minor(&self) -> i64 { self.unit_price_minor }
+    pub fn total_minor(&self) -> DomainResult<i64> {
+        i64::try_from(
+            i128::from(self.quantity_subunits)
+                .checked_mul(i128::from(self.unit_price_minor))
+                .ok_or(DomainError::ArithmeticOverflow)?,
+        )
+        .map_err(|_| DomainError::ArithmeticOverflow)
+    }
+}
+
+fn commercial_lines_total(lines: &[CommercialLine]) -> DomainResult<i64> {
+    if lines.is_empty() {
+        return Err(DomainError::Conflict(
+            "commercial document requires at least one line before issue".into(),
+        ));
+    }
+    lines.iter().try_fold(0_i64, |total, line| {
+        total
+            .checked_add(line.total_minor()?)
+            .ok_or(DomainError::ArithmeticOverflow)
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssuedQuoteSnapshot {
+    quote_id: RecordId,
+    kind: QuoteKind,
+    commercial_number: CommercialNumber,
+    customer: CommercialPartySnapshot,
+    lines: Vec<CommercialLine>,
+    total_minor: i64,
+}
+impl IssuedQuoteSnapshot {
+    #[must_use] pub fn quote_id(&self) -> &RecordId { &self.quote_id }
+    #[must_use] pub const fn kind(&self) -> QuoteKind { self.kind }
+    #[must_use] pub fn commercial_number(&self) -> &CommercialNumber { &self.commercial_number }
+    #[must_use] pub fn customer(&self) -> &CommercialPartySnapshot { &self.customer }
+    #[must_use] pub fn lines(&self) -> &[CommercialLine] { &self.lines }
+    #[must_use] pub const fn total_minor(&self) -> i64 { self.total_minor }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Quote {
+    id: RecordId,
+    kind: QuoteKind,
+    customer: CommercialPartySnapshot,
+    lines: Vec<CommercialLine>,
+    state: QuoteState,
+    issued: Option<IssuedQuoteSnapshot>,
+}
+impl Quote {
+    #[must_use]
+    pub fn new(id: RecordId, kind: QuoteKind, customer: CommercialPartySnapshot) -> Self {
+        Self { id, kind, customer, lines: Vec::new(), state: QuoteState::Draft, issued: None }
+    }
+    #[must_use] pub fn id(&self) -> &RecordId { &self.id }
+    #[must_use] pub const fn kind(&self) -> QuoteKind { self.kind }
+    #[must_use] pub const fn state(&self) -> QuoteState { self.state }
+    #[must_use] pub fn customer(&self) -> &CommercialPartySnapshot { &self.customer }
+    #[must_use] pub fn lines(&self) -> &[CommercialLine] { &self.lines }
+    #[must_use] pub fn issued_snapshot(&self) -> Option<&IssuedQuoteSnapshot> { self.issued.as_ref() }
+    #[must_use] pub const fn conversion_eligible(&self) -> bool { matches!(self.state, QuoteState::Accepted) }
+
+    pub fn set_customer(&mut self, customer: CommercialPartySnapshot) -> DomainResult<()> {
+        self.require_draft()?;
+        self.customer = customer;
+        Ok(())
+    }
+    pub fn add_line(&mut self, line: CommercialLine) -> DomainResult<()> {
+        self.require_draft()?;
+        if self.lines.iter().any(|existing| existing.id == line.id) {
+            return Err(DomainError::Conflict("duplicate commercial line id".into()));
+        }
+        self.lines.push(line);
+        Ok(())
+    }
+    pub fn replace_line(&mut self, line: CommercialLine) -> DomainResult<()> {
+        self.require_draft()?;
+        let existing = self.lines.iter_mut().find(|existing| existing.id == line.id)
+            .ok_or_else(|| DomainError::Conflict("commercial line does not exist".into()))?;
+        *existing = line;
+        Ok(())
+    }
+    pub fn remove_line(&mut self, line_id: &RecordId) -> DomainResult<()> {
+        self.require_draft()?;
+        let index = self.lines.iter().position(|line| &line.id == line_id)
+            .ok_or_else(|| DomainError::Conflict("commercial line does not exist".into()))?;
+        self.lines.remove(index);
+        Ok(())
+    }
+    pub fn issue(&mut self, commercial_number: CommercialNumber) -> DomainResult<&IssuedQuoteSnapshot> {
+        self.require_draft()?;
+        let total_minor = commercial_lines_total(&self.lines)?;
+        self.issued = Some(IssuedQuoteSnapshot {
+            quote_id: self.id.clone(),
+            kind: self.kind,
+            commercial_number,
+            customer: self.customer.clone(),
+            lines: self.lines.clone(),
+            total_minor,
+        });
+        self.state = QuoteState::Issued;
+        Ok(self.issued.as_ref().expect("issued snapshot was just set"))
+    }
+    pub fn accept(&mut self) -> DomainResult<()> { self.transition_from_issued(QuoteState::Accepted) }
+    pub fn reject(&mut self) -> DomainResult<()> { self.transition_from_issued(QuoteState::Rejected) }
+    pub fn expire(&mut self) -> DomainResult<()> { self.transition_from_issued(QuoteState::Expired) }
+    pub fn cancel(&mut self) -> DomainResult<()> { self.transition_from_issued(QuoteState::Cancelled) }
+
+    fn require_draft(&self) -> DomainResult<()> {
+        if self.state != QuoteState::Draft {
+            return Err(DomainError::InvalidTransition(
+                "quote or estimate commercial facts are immutable after issue".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn transition_from_issued(&mut self, target: QuoteState) -> DomainResult<()> {
+        if self.state != QuoteState::Issued {
+            return Err(DomainError::InvalidTransition(
+                "quote or estimate outcome requires issued state".into(),
+            ));
+        }
+        self.state = target;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvoiceStatus { Draft, Issued, Paid, Cancelled }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -365,6 +561,38 @@ mod tests {
         assert!(Supplier::with_contact_details(id("bad-phone"),"Supplier",None,None,Some("x".repeat(65))).is_err());
         assert!(Customer::new(id("name-200"), "x".repeat(200)).is_ok());
         assert!(Customer::new(id("name-201"), "x".repeat(201)).is_err());
+    }
+    fn quote_customer(name:&str)->CommercialPartySnapshot{Customer::new(id("customer-quote"),name).unwrap().snapshot()}
+    fn quote_line(line_id:&str, price:i64)->CommercialLine{CommercialLine::new(id(line_id),"Service",1,price).unwrap()}
+    #[test] fn quote_and_estimate_issue_freeze_immutable_commercial_snapshots(){
+        for kind in [QuoteKind::Quote,QuoteKind::Estimate]{
+            let mut quote=Quote::new(id("commercial-1"),kind,quote_customer("Original customer"));
+            quote.add_line(quote_line("line-1",12_345)).unwrap();
+            let issued=quote.issue(CommercialNumber::new("Q-0001").unwrap()).unwrap().clone();
+            assert_eq!(issued.total_minor(),12_345);
+            assert_eq!(issued.customer().display_name(),"Original customer");
+            assert!(quote.replace_line(quote_line("line-1",99_999)).is_err());
+            assert!(quote.set_customer(Customer::new(id("later"),"Later customer").unwrap().snapshot()).is_err());
+            assert_eq!(quote.issued_snapshot(),Some(&issued));
+        }
+    }
+    #[test] fn quote_state_transitions_fail_closed_and_accept_only_marks_conversion_eligibility(){
+        let mut quote=Quote::new(id("quote-1"),QuoteKind::Quote,quote_customer("Customer"));
+        assert!(quote.accept().is_err());
+        quote.add_line(quote_line("line-1",100)).unwrap();
+        quote.issue(CommercialNumber::new("Q-1").unwrap()).unwrap();
+        quote.accept().unwrap();
+        assert_eq!(quote.state(),QuoteState::Accepted);
+        assert!(quote.conversion_eligible());
+        assert!(quote.cancel().is_err());
+    }
+    #[test] fn commercial_line_arithmetic_is_checked_and_issue_requires_lines(){
+        assert!(CommercialLine::new(id("bad-quantity"),"Service",0,100).is_err());
+        assert!(CommercialLine::new(id("bad-price"),"Service",1,-1).is_err());
+        assert!(CommercialLine::new(id("overflow"),"Service",i64::MAX,2).is_err());
+        let mut quote=Quote::new(id("empty"),QuoteKind::Estimate,quote_customer("Customer"));
+        assert!(quote.issue(CommercialNumber::new("E-1").unwrap()).is_err());
+        assert_eq!(quote.state(),QuoteState::Draft);
     }
     #[test] fn invoice_date_order_enforced(){let issue=d();assert!(Invoice::new(id("inv"),id("c"),issue,Some(Date::new(2026,9,7).unwrap()),a(1000),InvoiceStatus::Issued).is_err());assert!(Invoice::new(id("inv2"),id("c"),issue,Some(issue),a(1000),InvoiceStatus::Issued).is_ok());}
     #[test] fn provenance_rejects_blanks(){assert!(SourceProvenance::new(SourceKind::Csv,Some(" ".into()),None,None).is_err());assert!(SourceProvenance::new(SourceKind::Ofx,Some("ofx:abc".into()),None,None).is_ok());}
