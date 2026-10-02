@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use shark_books_core as core;
 use shark_foundation::{
     Books, ContactPersistOutcome, ContactView, ContactWrite, FoundationError,
-    FoundationErrorCode, TrialBalance,
+    FoundationErrorCode, IssuedQuoteSnapshotView, QuoteDraftWrite, QuoteKind, QuoteLineView,
+    QuoteLineWrite, QuoteMutationOutcome, QuoteMutationView, QuoteState, QuoteView, TrialBalance,
 };
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use tauri_plugin_dialog::DialogExt;
@@ -66,7 +67,7 @@ type OwnerSupportingDataResult<T> = Result<T, OwnerSupportingDataError>;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct OwnerBooksRef {
+pub(crate) struct OwnerBooksRef {
     file_name: String,
     books_id: String,
     actor: String,
@@ -127,6 +128,82 @@ pub(crate) struct OwnerContactsListRequest {
     books: OwnerBooksRef,
     kind: Option<OwnerContactKind>,
     limit: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum OwnerQuoteReadOperation {
+    QuotesList,
+    QuoteDetail,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OwnerQuoteReadRequest {
+    books: OwnerBooksRef,
+    operation: OwnerQuoteReadOperation,
+    quote_id: Option<String>,
+    kind: Option<QuoteKind>,
+    state: Option<QuoteState>,
+    limit: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum OwnerSupportingListRequest {
+    Contacts(OwnerContactsListRequest),
+    Quotes(OwnerQuoteReadRequest),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "operation",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub(crate) enum OwnerQuoteMutationRequest {
+    CreateDraft {
+        books: OwnerBooksRef,
+        quote_id: String,
+        kind: QuoteKind,
+        customer_id: String,
+    },
+    SetCustomer {
+        books: OwnerBooksRef,
+        quote_id: String,
+        customer_id: String,
+    },
+    SaveLine {
+        books: OwnerBooksRef,
+        quote_id: String,
+        line_id: String,
+        description: String,
+        quantity_subunits: i64,
+        unit_price_pence: i64,
+    },
+    RemoveLine {
+        books: OwnerBooksRef,
+        quote_id: String,
+        line_id: String,
+    },
+    Issue {
+        books: OwnerBooksRef,
+        quote_id: String,
+        commercial_number: String,
+    },
+    Transition {
+        books: OwnerBooksRef,
+        quote_id: String,
+        target: QuoteState,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum OwnerSupportingSaveRequest {
+    Contact(OwnerContactsSaveRequest),
+    Quote(OwnerQuoteMutationRequest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -196,6 +273,199 @@ pub(crate) enum OwnerContactSaveOutcome {
 pub(crate) struct OwnerContactsListOutcome {
     bridge_version: u32,
     contacts: Vec<OwnerContactView>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OwnerQuoteLineView {
+    line_id: String,
+    description: String,
+    quantity_subunits: i64,
+    unit_price_pence: i64,
+    total_pence: i64,
+    position: i64,
+}
+
+impl From<QuoteLineView> for OwnerQuoteLineView {
+    fn from(value: QuoteLineView) -> Self {
+        Self {
+            line_id: value.line_id,
+            description: value.description,
+            quantity_subunits: value.quantity_subunits,
+            unit_price_pence: value.unit_price_minor,
+            total_pence: value.total_minor,
+            position: value.position,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OwnerQuoteCustomerSnapshotView {
+    customer_id: String,
+    display_name: String,
+    postal_address: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+}
+
+impl From<shark_foundation::QuoteCustomerSnapshotView> for OwnerQuoteCustomerSnapshotView {
+    fn from(value: shark_foundation::QuoteCustomerSnapshotView) -> Self {
+        Self {
+            customer_id: value.customer_id,
+            display_name: value.display_name,
+            postal_address: value.postal_address,
+            email: value.email,
+            phone: value.phone,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OwnerIssuedQuoteSnapshotView {
+    commercial_number: String,
+    kind: QuoteKind,
+    customer: OwnerQuoteCustomerSnapshotView,
+    lines: Vec<OwnerQuoteLineView>,
+    total_pence: i64,
+    issued_by: String,
+    issued_at: String,
+}
+
+impl From<IssuedQuoteSnapshotView> for OwnerIssuedQuoteSnapshotView {
+    fn from(value: IssuedQuoteSnapshotView) -> Self {
+        Self {
+            commercial_number: value.commercial_number,
+            kind: value.kind,
+            customer: value.customer.into(),
+            lines: value.lines.into_iter().map(Into::into).collect(),
+            total_pence: value.total_minor,
+            issued_by: value.issued_by,
+            issued_at: value.issued_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OwnerQuoteView {
+    bridge_version: u32,
+    quote_id: String,
+    kind: QuoteKind,
+    state: QuoteState,
+    customer: OwnerQuoteCustomerSnapshotView,
+    lines: Vec<OwnerQuoteLineView>,
+    total_pence: i64,
+    issued_snapshot: Option<OwnerIssuedQuoteSnapshotView>,
+    conversion_eligible: bool,
+    created_by: String,
+    created_at: String,
+    updated_by: String,
+    updated_at: String,
+}
+
+impl From<QuoteView> for OwnerQuoteView {
+    fn from(value: QuoteView) -> Self {
+        Self {
+            bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
+            quote_id: value.quote_id,
+            kind: value.kind,
+            state: value.state,
+            customer: value.customer.into(),
+            lines: value.lines.into_iter().map(Into::into).collect(),
+            total_pence: value.total_minor,
+            issued_snapshot: value.issued_snapshot.map(Into::into),
+            conversion_eligible: value.conversion_eligible,
+            created_by: value.created_by,
+            created_at: value.created_at,
+            updated_by: value.updated_by,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OwnerQuoteMutationView {
+    mutation_id: i64,
+    quote_id: String,
+    action: String,
+    before: Option<OwnerQuoteView>,
+    after: Option<OwnerQuoteView>,
+    actor: String,
+    occurred_at: String,
+}
+
+impl From<QuoteMutationView> for OwnerQuoteMutationView {
+    fn from(value: QuoteMutationView) -> Self {
+        Self {
+            mutation_id: value.mutation_id,
+            quote_id: value.quote_id,
+            action: value.action,
+            before: value.before.map(Into::into),
+            after: value.after.map(Into::into),
+            actor: value.actor,
+            occurred_at: value.occurred_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnerQuotesListOutcome {
+    bridge_version: u32,
+    quotes: Vec<OwnerQuoteView>,
+    non_posting: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnerQuoteDetailOutcome {
+    bridge_version: u32,
+    quote: OwnerQuoteView,
+    history: Vec<OwnerQuoteMutationView>,
+    non_posting: bool,
+    invoice_created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OwnerQuoteMutationOutcome {
+    bridge_version: u32,
+    quote: OwnerQuoteView,
+    mutation: OwnerQuoteMutationView,
+    non_posting: bool,
+    invoice_created: bool,
+    requires_further_automatic_action: bool,
+}
+
+impl From<QuoteMutationOutcome> for OwnerQuoteMutationOutcome {
+    fn from(value: QuoteMutationOutcome) -> Self {
+        Self {
+            bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
+            quote: value.quote.into(),
+            mutation: value.mutation.into(),
+            non_posting: true,
+            invoice_created: false,
+            requires_further_automatic_action: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub(crate) enum OwnerSupportingListOutcome {
+    Contacts(OwnerContactsListOutcome),
+    Quotes(OwnerQuotesListOutcome),
+    QuoteDetail(OwnerQuoteDetailOutcome),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub(crate) enum OwnerSupportingSaveOutcome {
+    Contact(OwnerContactSaveOutcome),
+    Quote(OwnerQuoteMutationOutcome),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -281,6 +551,215 @@ fn core_contact(write: &OwnerContactsSaveRequest) -> OwnerSupportingDataResult<C
         postal_address: snapshot.postal_address().map(str::to_string),
         email: snapshot.email().map(str::to_string),
         phone: snapshot.phone().map(str::to_string),
+    })
+}
+
+fn core_record_id(value: String) -> OwnerSupportingDataResult<String> {
+    core::RecordId::new(value)
+        .map(|record_id| record_id.as_str().to_string())
+        .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))
+}
+
+fn core_quote_line(
+    line_id: String,
+    description: String,
+    quantity_subunits: i64,
+    unit_price_pence: i64,
+) -> OwnerSupportingDataResult<QuoteLineWrite> {
+    let line = core::CommercialLine::new(
+        core::RecordId::new(line_id)
+            .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?,
+        description,
+        quantity_subunits,
+        unit_price_pence,
+    )
+    .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?;
+    Ok(QuoteLineWrite {
+        line_id: line.id().as_str().to_string(),
+        description: line.description().to_string(),
+        quantity_subunits: line.quantity_subunits(),
+        unit_price_minor: line.unit_price_minor(),
+    })
+}
+
+fn quote_mutation(
+    request: OwnerQuoteMutationRequest,
+) -> OwnerSupportingDataResult<OwnerQuoteMutationOutcome> {
+    let outcome = match request {
+        OwnerQuoteMutationRequest::CreateDraft {
+            books,
+            quote_id,
+            kind,
+            customer_id,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            let customer_id = core_record_id(customer_id)?;
+            books
+                .open()?
+                .create_quote_draft(&QuoteDraftWrite {
+                    quote_id,
+                    kind,
+                    customer_id,
+                })
+        }
+        OwnerQuoteMutationRequest::SetCustomer {
+            books,
+            quote_id,
+            customer_id,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            let customer_id = core_record_id(customer_id)?;
+            books.open()?.set_quote_customer(&quote_id, &customer_id)
+        }
+        OwnerQuoteMutationRequest::SaveLine {
+            books,
+            quote_id,
+            line_id,
+            description,
+            quantity_subunits,
+            unit_price_pence,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            let line = core_quote_line(
+                line_id,
+                description,
+                quantity_subunits,
+                unit_price_pence,
+            )?;
+            books.open()?.save_quote_line(&quote_id, &line)
+        }
+        OwnerQuoteMutationRequest::RemoveLine {
+            books,
+            quote_id,
+            line_id,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            let line_id = core_record_id(line_id)?;
+            books.open()?.remove_quote_line(&quote_id, &line_id)
+        }
+        OwnerQuoteMutationRequest::Issue {
+            books,
+            quote_id,
+            commercial_number,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            let commercial_number = core::CommercialNumber::new(commercial_number)
+                .map_err(|error| OwnerSupportingDataError::invalid(error.to_string()))?;
+            books
+                .open()?
+                .issue_quote(&quote_id, commercial_number.as_str())
+        }
+        OwnerQuoteMutationRequest::Transition {
+            books,
+            quote_id,
+            target,
+        } => {
+            let quote_id = core_record_id(quote_id)?;
+            books.open()?.transition_quote(&quote_id, target)
+        }
+    }
+    .map_err(OwnerSupportingDataError::foundation)?;
+    Ok(outcome.into())
+}
+
+fn quote_read(
+    request: OwnerQuoteReadRequest,
+) -> OwnerSupportingDataResult<OwnerSupportingListOutcome> {
+    let books = request.books.open()?;
+    match request.operation {
+        OwnerQuoteReadOperation::QuotesList => {
+            if request.quote_id.is_some() {
+                return Err(OwnerSupportingDataError::invalid(
+                    "quote list does not accept a quote id",
+                ));
+            }
+            let limit = i64::from(request.limit.unwrap_or(200));
+            let quotes = books
+                .quotes(request.kind, request.state, limit)
+                .map_err(OwnerSupportingDataError::foundation)?
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            Ok(OwnerSupportingListOutcome::Quotes(OwnerQuotesListOutcome {
+                bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
+                quotes,
+                non_posting: true,
+            }))
+        }
+        OwnerQuoteReadOperation::QuoteDetail => {
+            if request.kind.is_some() || request.state.is_some() {
+                return Err(OwnerSupportingDataError::invalid(
+                    "quote detail does not accept list filters",
+                ));
+            }
+            let quote_id = request.quote_id.ok_or_else(|| {
+                OwnerSupportingDataError::invalid("quote detail requires a quote id")
+            })?;
+            let quote_id = core_record_id(quote_id)?;
+            let quote = books
+                .quote(&quote_id)
+                .map_err(OwnerSupportingDataError::foundation)?;
+            let history = books
+                .quote_history(&quote_id, i64::from(request.limit.unwrap_or(200)))
+                .map_err(OwnerSupportingDataError::foundation)?
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            Ok(OwnerSupportingListOutcome::QuoteDetail(
+                OwnerQuoteDetailOutcome {
+                    bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
+                    quote: quote.into(),
+                    history,
+                    non_posting: true,
+                    invoice_created: false,
+                },
+            ))
+        }
+    }
+}
+
+fn save_contact_request(
+    request: OwnerContactsSaveRequest,
+) -> OwnerSupportingDataResult<OwnerContactSaveOutcome> {
+    let write = core_contact(&request)?;
+    let books = request.books.open()?;
+    match books
+        .save_contact(&write)
+        .map_err(OwnerSupportingDataError::foundation)?
+    {
+        ContactPersistOutcome::Created(contact) => Ok(OwnerContactSaveOutcome::Created {
+            contact: contact.try_into()?,
+        }),
+        ContactPersistOutcome::Updated(contact) => Ok(OwnerContactSaveOutcome::Updated {
+            contact: contact.try_into()?,
+        }),
+        ContactPersistOutcome::AlreadyCurrent(contact) => {
+            Ok(OwnerContactSaveOutcome::AlreadyCurrent {
+                contact: contact.try_into()?,
+            })
+        }
+    }
+}
+
+fn list_contacts_request(
+    request: OwnerContactsListRequest,
+) -> OwnerSupportingDataResult<OwnerContactsListOutcome> {
+    let limit = i64::from(request.limit.unwrap_or(OWNER_CONTACT_LIST_MAX as u16));
+    if !(1..=OWNER_CONTACT_LIST_MAX).contains(&limit) {
+        return Err(OwnerSupportingDataError::invalid(
+            "owner contact list limit must be between 1 and 200",
+        ));
+    }
+    let books = request.books.open()?;
+    let contacts = books
+        .contacts(request.kind.map(OwnerContactKind::as_str), limit)
+        .map_err(OwnerSupportingDataError::foundation)?
+        .into_iter()
+        .map(OwnerContactView::try_from)
+        .collect::<OwnerSupportingDataResult<Vec<_>>>()?;
+    Ok(OwnerContactsListOutcome {
+        bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
+        contacts,
     })
 }
 
@@ -425,49 +904,26 @@ fn select_storage_root(
 
 #[tauri::command]
 pub(crate) fn owner_contacts_save(
-    request: OwnerContactsSaveRequest,
-) -> OwnerSupportingDataResult<OwnerContactSaveOutcome> {
-    let write = core_contact(&request)?;
-    let books = request.books.open()?;
-    match books
-        .save_contact(&write)
-        .map_err(OwnerSupportingDataError::foundation)?
-    {
-        ContactPersistOutcome::Created(contact) => Ok(OwnerContactSaveOutcome::Created {
-            contact: contact.try_into()?,
-        }),
-        ContactPersistOutcome::Updated(contact) => Ok(OwnerContactSaveOutcome::Updated {
-            contact: contact.try_into()?,
-        }),
-        ContactPersistOutcome::AlreadyCurrent(contact) => {
-            Ok(OwnerContactSaveOutcome::AlreadyCurrent {
-                contact: contact.try_into()?,
-            })
+    request: OwnerSupportingSaveRequest,
+) -> OwnerSupportingDataResult<OwnerSupportingSaveOutcome> {
+    match request {
+        OwnerSupportingSaveRequest::Contact(request) => save_contact_request(request)
+            .map(OwnerSupportingSaveOutcome::Contact),
+        OwnerSupportingSaveRequest::Quote(request) => {
+            quote_mutation(request).map(OwnerSupportingSaveOutcome::Quote)
         }
     }
 }
 
 #[tauri::command]
 pub(crate) fn owner_contacts_list(
-    request: OwnerContactsListRequest,
-) -> OwnerSupportingDataResult<OwnerContactsListOutcome> {
-    let limit = i64::from(request.limit.unwrap_or(OWNER_CONTACT_LIST_MAX as u16));
-    if !(1..=OWNER_CONTACT_LIST_MAX).contains(&limit) {
-        return Err(OwnerSupportingDataError::invalid(
-            "owner contact list limit must be between 1 and 200",
-        ));
+    request: OwnerSupportingListRequest,
+) -> OwnerSupportingDataResult<OwnerSupportingListOutcome> {
+    match request {
+        OwnerSupportingListRequest::Contacts(request) => list_contacts_request(request)
+            .map(OwnerSupportingListOutcome::Contacts),
+        OwnerSupportingListRequest::Quotes(request) => quote_read(request),
     }
-    let books = request.books.open()?;
-    let contacts = books
-        .contacts(request.kind.map(OwnerContactKind::as_str), limit)
-        .map_err(OwnerSupportingDataError::foundation)?
-        .into_iter()
-        .map(OwnerContactView::try_from)
-        .collect::<OwnerSupportingDataResult<Vec<_>>>()?;
-    Ok(OwnerContactsListOutcome {
-        bridge_version: OWNER_SUPPORTING_DATA_BRIDGE_VERSION,
-        contacts,
-    })
 }
 
 #[tauri::command]
@@ -587,6 +1043,64 @@ mod tests {
             phone: None,
         };
         assert!(core_contact(&too_long).is_err());
+    }
+
+    #[test]
+    fn registered_supporting_commands_route_bounded_quote_operations() {
+        let list = serde_json::json!({
+            "books": {
+                "fileName": "owner-support.sqlite",
+                "booksId": "owner-support",
+                "actor": "local-owner"
+            },
+            "operation": "quotesList",
+            "kind": "estimate",
+            "state": "draft",
+            "limit": 50
+        });
+        assert!(matches!(
+            serde_json::from_value::<OwnerSupportingListRequest>(list).unwrap(),
+            OwnerSupportingListRequest::Quotes(_)
+        ));
+
+        let mutation = serde_json::json!({
+            "books": {
+                "fileName": "owner-support.sqlite",
+                "booksId": "owner-support",
+                "actor": "local-owner"
+            },
+            "operation": "saveLine",
+            "quoteId": "quote-1",
+            "lineId": "line-1",
+            "description": "Service",
+            "quantitySubunits": 2,
+            "unitPricePence": 12500
+        });
+        assert!(matches!(
+            serde_json::from_value::<OwnerSupportingSaveRequest>(mutation).unwrap(),
+            OwnerSupportingSaveRequest::Quote(OwnerQuoteMutationRequest::SaveLine { .. })
+        ));
+
+        for forbidden in ["invoiceId", "vatRate", "paymentProvider", "pdfTemplate"] {
+            let mut invalid = serde_json::json!({
+                "books": {
+                    "fileName": "owner-support.sqlite",
+                    "booksId": "owner-support",
+                    "actor": "local-owner"
+                },
+                "operation": "transition",
+                "quoteId": "quote-1",
+                "target": "accepted"
+            });
+            invalid
+                .as_object_mut()
+                .expect("object fixture")
+                .insert(forbidden.to_string(), serde_json::json!("not-authorised"));
+            assert!(
+                serde_json::from_value::<OwnerSupportingSaveRequest>(invalid).is_err(),
+                "quote mutation accepted prohibited field {forbidden}"
+            );
+        }
     }
 
     #[test]

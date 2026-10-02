@@ -5,6 +5,7 @@ import MoneyScreen from "./screens/MoneyScreen.vue";
 import BankScreen from "./screens/BankScreen.vue";
 import ReceiptsScreen from "./screens/ReceiptsScreen.vue";
 import ContactsScreen from "./screens/ContactsScreen.vue";
+import QuotesScreen from "./screens/QuotesScreen.vue";
 import ReportsScreen from "./screens/ReportsScreen.vue";
 import SettingsScreen from "./screens/SettingsScreen.vue";
 import { createBooksSession } from "./lib/session";
@@ -16,6 +17,7 @@ const sections = [
   "Bank",
   "Receipts",
   "Contacts",
+  "Quotes & estimates",
   "Reports",
   "Settings",
 ] as const;
@@ -78,6 +80,7 @@ function navigate(section: string) {
       <BankScreen v-else-if="activeSection === 'Bank'" :session="session" />
       <ReceiptsScreen v-else-if="activeSection === 'Receipts'" :session="session" />
       <ContactsScreen v-else-if="activeSection === 'Contacts'" :session="session" />
+      <QuotesScreen v-else-if="activeSection === 'Quotes & estimates'" :session="session" />
       <ReportsScreen v-else-if="activeSection === 'Reports'" :session="session" />
       <SettingsScreen v-else :session="session" />
     </main>
