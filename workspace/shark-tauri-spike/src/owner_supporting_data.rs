@@ -8,9 +8,12 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use shark_books_core as core;
 use shark_foundation::{
-    Books, ContactPersistOutcome, ContactView, ContactWrite, FoundationError,
-    FoundationErrorCode, IssuedQuoteSnapshotView, QuoteDraftWrite, QuoteKind, QuoteLineView,
-    QuoteLineWrite, QuoteMutationOutcome, QuoteMutationView, QuoteState, QuoteView, TrialBalance,
+    Books, ContactPersistOutcome, ContactView, ContactWrite, CreditNoteDraftWrite,
+    CreditNoteLineWrite, CreditNoteMutationOutcome, CreditNoteState, CreditNoteView,
+    FoundationError, FoundationErrorCode, InvoiceDraftWrite, InvoiceLineWrite,
+    InvoiceMutationOutcome, InvoiceState, InvoiceView, IssuedQuoteSnapshotView, QuoteDraftWrite,
+    QuoteKind, QuoteLineView, QuoteLineWrite, QuoteMutationOutcome, QuoteMutationView, QuoteState,
+    QuoteView, TrialBalance,
 };
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use tauri_plugin_dialog::DialogExt;
@@ -153,6 +156,7 @@ pub(crate) struct OwnerQuoteReadRequest {
 pub(crate) enum OwnerSupportingListRequest {
     Contacts(OwnerContactsListRequest),
     Quotes(OwnerQuoteReadRequest),
+    Invoices(OwnerInvoiceReadRequest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -204,6 +208,7 @@ pub(crate) enum OwnerQuoteMutationRequest {
 pub(crate) enum OwnerSupportingSaveRequest {
     Contact(OwnerContactsSaveRequest),
     Quote(OwnerQuoteMutationRequest),
+    Invoice(OwnerInvoiceMutationRequest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -459,6 +464,7 @@ pub(crate) enum OwnerSupportingListOutcome {
     Contacts(OwnerContactsListOutcome),
     Quotes(OwnerQuotesListOutcome),
     QuoteDetail(OwnerQuoteDetailOutcome),
+    Invoices(OwnerInvoiceReadOutcome),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -466,6 +472,7 @@ pub(crate) enum OwnerSupportingListOutcome {
 pub(crate) enum OwnerSupportingSaveOutcome {
     Contact(OwnerContactSaveOutcome),
     Quote(OwnerQuoteMutationOutcome),
+    Invoice(OwnerInvoiceMutationOutcome),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -907,6 +914,7 @@ pub(crate) fn owner_contacts_save(
     request: OwnerSupportingSaveRequest,
 ) -> OwnerSupportingDataResult<OwnerSupportingSaveOutcome> {
     match request {
+        OwnerSupportingSaveRequest::Invoice(request) => invoice_mutation(request).map(OwnerSupportingSaveOutcome::Invoice),
         OwnerSupportingSaveRequest::Contact(request) => save_contact_request(request)
             .map(OwnerSupportingSaveOutcome::Contact),
         OwnerSupportingSaveRequest::Quote(request) => {
@@ -923,6 +931,7 @@ pub(crate) fn owner_contacts_list(
         OwnerSupportingListRequest::Contacts(request) => list_contacts_request(request)
             .map(OwnerSupportingListOutcome::Contacts),
         OwnerSupportingListRequest::Quotes(request) => quote_read(request),
+        OwnerSupportingListRequest::Invoices(request) => invoice_read(request).map(OwnerSupportingListOutcome::Invoices),
     }
 }
 
@@ -1263,5 +1272,97 @@ mod tests {
             balanced: true,
         };
         assert!(report_from_trial_balance(ambiguous).is_err());
+    }
+}
+
+
+// SBC8A3 reuses the registered supporting-data commands with explicit bounded
+// operations. No request contains raw storage, tax, PDF, provider or network authority.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "operation", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
+pub(crate) enum OwnerInvoiceMutationRequest {
+    CreateInvoiceDraft { books:OwnerBooksRef,invoice_id:String,customer_id:String,issue_date:String,due_date:Option<String> },
+    SetInvoiceCustomer { books:OwnerBooksRef,invoice_id:String,customer_id:String },
+    SetInvoiceDates { books:OwnerBooksRef,invoice_id:String,issue_date:String,due_date:Option<String> },
+    SaveInvoiceLine { books:OwnerBooksRef,invoice_id:String,line_id:String,description:String,quantity_subunits:i64,unit_price_pence:i64 },
+    RemoveInvoiceLine { books:OwnerBooksRef,invoice_id:String,line_id:String },
+    IssueInvoice { books:OwnerBooksRef,invoice_id:String,invoice_number:String },
+    CancelInvoice { books:OwnerBooksRef,invoice_id:String },
+    RecordManualPayment { books:OwnerBooksRef,invoice_id:String,amount_pence:i64 },
+    ConvertAcceptedQuote { books:OwnerBooksRef,quote_id:String,invoice_id:String,issue_date:String,due_date:Option<String> },
+    CreateCreditNoteDraft { books:OwnerBooksRef,credit_note_id:String,invoice_id:String },
+    SaveCreditNoteLine { books:OwnerBooksRef,credit_note_id:String,line_id:String,invoice_line_id:String,quantity_subunits:i64 },
+    RemoveCreditNoteLine { books:OwnerBooksRef,credit_note_id:String,line_id:String },
+    IssueCreditNote { books:OwnerBooksRef,credit_note_id:String,credit_note_number:String },
+    CancelCreditNote { books:OwnerBooksRef,credit_note_id:String },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "operation", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
+pub(crate) enum OwnerInvoiceReadRequest {
+    InvoicesList { books:OwnerBooksRef,state:Option<InvoiceState>,limit:u16 },
+    InvoiceDetail { books:OwnerBooksRef,invoice_id:String,limit:u16 },
+    CreditNotesList { books:OwnerBooksRef,invoice_id:Option<String>,state:Option<CreditNoteState>,limit:u16 },
+    CreditNoteDetail { books:OwnerBooksRef,credit_note_id:String,limit:u16 },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub(crate) enum OwnerInvoiceReadOutcome {
+    Invoices { bridge_version:u32,invoices:Vec<InvoiceView>,bank_payment_created:bool,provider_network_used:bool },
+    InvoiceDetail { bridge_version:u32,invoice:InvoiceView,history:Vec<shark_foundation::InvoiceMutationView>,credit_notes:Vec<CreditNoteView>,bank_payment_created:bool,provider_network_used:bool },
+    CreditNotes { bridge_version:u32,credit_notes:Vec<CreditNoteView>,bank_payment_created:bool,provider_network_used:bool },
+    CreditNoteDetail { bridge_version:u32,credit_note:CreditNoteView,history:Vec<shark_foundation::CreditNoteMutationView>,invoice:InvoiceView,bank_payment_created:bool,provider_network_used:bool },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub(crate) enum OwnerInvoiceMutationOutcome {
+    Invoice { bridge_version:u32,invoice:InvoiceView,mutation:shark_foundation::InvoiceMutationView,bank_payment_created:bool,provider_network_used:bool,requires_further_automatic_action:bool },
+    CreditNote { bridge_version:u32,credit_note:CreditNoteView,mutation:shark_foundation::CreditNoteMutationView,invoice:InvoiceView,invoice_mutation:Option<shark_foundation::InvoiceMutationView>,bank_payment_created:bool,provider_network_used:bool,requires_further_automatic_action:bool },
+}
+
+fn invoice_read(request:OwnerInvoiceReadRequest)->OwnerSupportingDataResult<OwnerInvoiceReadOutcome>{
+    match request {
+        OwnerInvoiceReadRequest::InvoicesList{books,state,limit}=>Ok(OwnerInvoiceReadOutcome::Invoices{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,invoices:books.open()?.invoices(state,i64::from(limit)).map_err(OwnerSupportingDataError::foundation)?,bank_payment_created:false,provider_network_used:false}),
+        OwnerInvoiceReadRequest::InvoiceDetail{books,invoice_id,limit}=>{let id=core_record_id(invoice_id)?;let books=books.open()?;Ok(OwnerInvoiceReadOutcome::InvoiceDetail{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,invoice:books.invoice(&id).map_err(OwnerSupportingDataError::foundation)?,history:books.invoice_history(&id,i64::from(limit)).map_err(OwnerSupportingDataError::foundation)?,credit_notes:books.credit_notes(Some(&id),None,i64::from(limit)).map_err(OwnerSupportingDataError::foundation)?,bank_payment_created:false,provider_network_used:false})}
+        OwnerInvoiceReadRequest::CreditNotesList{books,invoice_id,state,limit}=>{let id=invoice_id.map(core_record_id).transpose()?;Ok(OwnerInvoiceReadOutcome::CreditNotes{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,credit_notes:books.open()?.credit_notes(id.as_deref(),state,i64::from(limit)).map_err(OwnerSupportingDataError::foundation)?,bank_payment_created:false,provider_network_used:false})}
+        OwnerInvoiceReadRequest::CreditNoteDetail{books,credit_note_id,limit}=>{let id=core_record_id(credit_note_id)?;let books=books.open()?;let credit=books.credit_note(&id).map_err(OwnerSupportingDataError::foundation)?;Ok(OwnerInvoiceReadOutcome::CreditNoteDetail{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,invoice:books.invoice(&credit.invoice_id).map_err(OwnerSupportingDataError::foundation)?,history:books.credit_note_history(&id,i64::from(limit)).map_err(OwnerSupportingDataError::foundation)?,credit_note:credit,bank_payment_created:false,provider_network_used:false})}
+    }
+}
+
+fn owner_invoice_outcome(outcome:InvoiceMutationOutcome)->OwnerInvoiceMutationOutcome{OwnerInvoiceMutationOutcome::Invoice{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,invoice:outcome.invoice,mutation:outcome.mutation,bank_payment_created:false,provider_network_used:false,requires_further_automatic_action:false}}
+fn owner_credit_outcome(outcome:CreditNoteMutationOutcome)->OwnerInvoiceMutationOutcome{OwnerInvoiceMutationOutcome::CreditNote{bridge_version:OWNER_SUPPORTING_DATA_BRIDGE_VERSION,credit_note:outcome.credit_note,mutation:outcome.mutation,invoice:outcome.invoice,invoice_mutation:outcome.invoice_mutation,bank_payment_created:false,provider_network_used:false,requires_further_automatic_action:false}}
+
+fn invoice_mutation(request:OwnerInvoiceMutationRequest)->OwnerSupportingDataResult<OwnerInvoiceMutationOutcome>{
+    use OwnerInvoiceMutationRequest::*;
+    match request {
+        CreateInvoiceDraft{books,invoice_id,customer_id,issue_date,due_date}=>books.open()?.create_invoice_draft(&InvoiceDraftWrite{invoice_id:core_record_id(invoice_id)?,customer_id:core_record_id(customer_id)?,issue_date,due_date}).map(owner_invoice_outcome),
+        SetInvoiceCustomer{books,invoice_id,customer_id}=>books.open()?.set_invoice_customer(&core_record_id(invoice_id)?,&core_record_id(customer_id)?).map(owner_invoice_outcome),
+        SetInvoiceDates{books,invoice_id,issue_date,due_date}=>books.open()?.set_invoice_dates(&core_record_id(invoice_id)?,&issue_date,due_date.as_deref()).map(owner_invoice_outcome),
+        SaveInvoiceLine{books,invoice_id,line_id,description,quantity_subunits,unit_price_pence}=>{let line=core_quote_line(line_id,description,quantity_subunits,unit_price_pence)?;books.open()?.save_invoice_line(&core_record_id(invoice_id)?,&InvoiceLineWrite{line_id:line.line_id,description:line.description,quantity_subunits:line.quantity_subunits,unit_price_minor:line.unit_price_minor}).map(owner_invoice_outcome)},
+        RemoveInvoiceLine{books,invoice_id,line_id}=>books.open()?.remove_invoice_line(&core_record_id(invoice_id)?,&core_record_id(line_id)?).map(owner_invoice_outcome),
+        IssueInvoice{books,invoice_id,invoice_number}=>{let number=core::CommercialNumber::new(invoice_number).map_err(|error|OwnerSupportingDataError::invalid(error.to_string()))?;books.open()?.issue_invoice(&core_record_id(invoice_id)?,number.as_str()).map(owner_invoice_outcome)},
+        CancelInvoice{books,invoice_id}=>books.open()?.cancel_invoice(&core_record_id(invoice_id)?).map(owner_invoice_outcome),
+        RecordManualPayment{books,invoice_id,amount_pence}=>books.open()?.record_manual_invoice_payment(&core_record_id(invoice_id)?,amount_pence).map(owner_invoice_outcome),
+        ConvertAcceptedQuote{books,quote_id,invoice_id,issue_date,due_date}=>books.open()?.convert_accepted_quote(&core_record_id(quote_id)?,&core_record_id(invoice_id)?,&issue_date,due_date.as_deref()).map(owner_invoice_outcome),
+        CreateCreditNoteDraft{books,credit_note_id,invoice_id}=>books.open()?.create_credit_note_draft(&CreditNoteDraftWrite{credit_note_id:core_record_id(credit_note_id)?,invoice_id:core_record_id(invoice_id)?}).map(owner_credit_outcome),
+        SaveCreditNoteLine{books,credit_note_id,line_id,invoice_line_id,quantity_subunits}=>books.open()?.save_credit_note_line(&core_record_id(credit_note_id)?,&CreditNoteLineWrite{line_id:core_record_id(line_id)?,invoice_line_id:core_record_id(invoice_line_id)?,quantity_subunits}).map(owner_credit_outcome),
+        RemoveCreditNoteLine{books,credit_note_id,line_id}=>books.open()?.remove_credit_note_line(&core_record_id(credit_note_id)?,&core_record_id(line_id)?).map(owner_credit_outcome),
+        IssueCreditNote{books,credit_note_id,credit_note_number}=>{let number=core::CommercialNumber::new(credit_note_number).map_err(|error|OwnerSupportingDataError::invalid(error.to_string()))?;books.open()?.issue_credit_note(&core_record_id(credit_note_id)?,number.as_str()).map(owner_credit_outcome)},
+        CancelCreditNote{books,credit_note_id}=>books.open()?.cancel_credit_note(&core_record_id(credit_note_id)?).map(owner_credit_outcome),
+    }.map_err(OwnerSupportingDataError::foundation)
+}
+
+#[cfg(test)]
+mod invoice_bridge_tests {
+    use super::*;
+    #[test] fn sbc8a3_registered_bridge_is_explicit_and_rejects_unrelated_authority(){
+        let books=serde_json::json!({"fileName":"books.db","booksId":"company","actor":"owner"});
+        let request=serde_json::json!({"operation":"convertAcceptedQuote","books":books,"invoiceId":"inv-1","quoteId":"q-1","issueDate":"2026-10-02","dueDate":null});
+        assert!(matches!(serde_json::from_value::<OwnerSupportingSaveRequest>(request.clone()).unwrap(),OwnerSupportingSaveRequest::Invoice(_)));
+        for field in ["vatRate","provider","sql","paymentToken","pdfTemplate"]{let mut invalid=request.clone();invalid[field]=serde_json::json!("forbidden");assert!(serde_json::from_value::<OwnerSupportingSaveRequest>(invalid).is_err());}
+        let fractional=serde_json::json!({"operation":"recordManualPayment","books":books,"invoiceId":"i","amountPence":1.5});assert!(serde_json::from_value::<OwnerSupportingSaveRequest>(fractional).is_err());
+        let read=serde_json::json!({"operation":"invoiceDetail","books":books,"invoiceId":"inv-1","limit":200});assert!(matches!(serde_json::from_value::<OwnerSupportingListRequest>(read).unwrap(),OwnerSupportingListRequest::Invoices(_)));
     }
 }

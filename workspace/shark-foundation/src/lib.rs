@@ -1,4 +1,4 @@
-//! SBC-1C production Shark accounting/application facade.
+﻿//! SBC-1C production Shark accounting/application facade.
 //! Production native books are encrypted by default and keys stay behind a Shark-owned provider boundary.
 
 use std::fmt;
@@ -29,6 +29,8 @@ mod document_application;
 mod mutation_audit_application;
 mod owner_read_application;
 mod quote_application;
+mod invoice_application;
+pub use invoice_application::*;
 pub use bank_application::{
     BankActivityPersistKind, BankActivityPersistOutcome, BankActivityReviewKind,
     BankActivityReviewOutcome, BankActivityView, BankActivityWrite, BankMatchPersistOutcome,

@@ -478,7 +478,7 @@ impl Quote {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InvoiceStatus { Draft, Issued, Paid, Cancelled }
+pub enum InvoiceStatus { Draft, Issued, PartPaid, Paid, Cancelled }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invoice { id:RecordId, customer_id:RecordId, issue_date:Date, due_date:Option<Date>, total:GbpAmount, status:InvoiceStatus }
 impl Invoice {
@@ -489,6 +489,187 @@ impl Invoice {
     #[must_use] pub fn id(&self)->&RecordId{&self.id} #[must_use] pub fn customer_id(&self)->&RecordId{&self.customer_id}
     #[must_use] pub const fn issue_date(&self)->Date{self.issue_date} #[must_use] pub const fn due_date(&self)->Option<Date>{self.due_date}
     #[must_use] pub const fn total(&self)->GbpAmount{self.total} #[must_use] pub const fn status(&self)->InvoiceStatus{self.status}
+}
+
+/// Immutable commercial facts captured when a sales invoice is issued.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssuedInvoiceSnapshot {
+    invoice_id: RecordId,
+    invoice_number: CommercialNumber,
+    customer: CommercialPartySnapshot,
+    issue_date: Date,
+    due_date: Option<Date>,
+    lines: Vec<CommercialLine>,
+    total_minor: i64,
+    source_quote_id: Option<RecordId>,
+}
+impl IssuedInvoiceSnapshot {
+    #[must_use] pub fn invoice_id(&self)->&RecordId{&self.invoice_id}
+    #[must_use] pub fn invoice_number(&self)->&CommercialNumber{&self.invoice_number}
+    #[must_use] pub fn customer(&self)->&CommercialPartySnapshot{&self.customer}
+    #[must_use] pub const fn issue_date(&self)->Date{self.issue_date}
+    #[must_use] pub const fn due_date(&self)->Option<Date>{self.due_date}
+    #[must_use] pub fn lines(&self)->&[CommercialLine]{&self.lines}
+    #[must_use] pub const fn total_minor(&self)->i64{self.total_minor}
+    #[must_use] pub fn source_quote_id(&self)->Option<&RecordId>{self.source_quote_id.as_ref()}
+}
+
+/// Sales-invoice aggregate used to validate whole-pence lifecycle changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SalesInvoice {
+    id: RecordId,
+    customer: CommercialPartySnapshot,
+    issue_date: Date,
+    due_date: Option<Date>,
+    lines: Vec<CommercialLine>,
+    status: InvoiceStatus,
+    issued: Option<IssuedInvoiceSnapshot>,
+    paid_minor: i64,
+    credited_minor: i64,
+    source_quote_id: Option<RecordId>,
+}
+impl SalesInvoice {
+    pub fn draft(
+        id:RecordId, customer:CommercialPartySnapshot, issue_date:Date, due_date:Option<Date>
+    )->DomainResult<Self>{
+        if due_date.is_some_and(|date|date<issue_date){
+            return Err(DomainError::InvalidInvoiceDates("invoice due date cannot be before issue date".into()));
+        }
+        Ok(Self{id,customer,issue_date,due_date,lines:Vec::new(),status:InvoiceStatus::Draft,issued:None,paid_minor:0,credited_minor:0,source_quote_id:None})
+    }
+    pub fn from_accepted_quote(
+        id:RecordId, quote:&Quote, issue_date:Date, due_date:Option<Date>
+    )->DomainResult<Self>{
+        if !quote.conversion_eligible(){
+            return Err(DomainError::InvalidTransition("only an accepted conversion-eligible quote or estimate can be converted".into()));
+        }
+        let source=quote.issued_snapshot().ok_or_else(||DomainError::Conflict("accepted quote is missing its immutable issued snapshot".into()))?;
+        let mut invoice=Self::draft(id,source.customer.clone(),issue_date,due_date)?;
+        invoice.lines=source.lines.clone();
+        invoice.source_quote_id=Some(source.quote_id.clone());
+        Ok(invoice)
+    }
+    #[must_use] pub fn id(&self)->&RecordId{&self.id}
+    #[must_use] pub const fn status(&self)->InvoiceStatus{self.status}
+    #[must_use] pub fn customer(&self)->&CommercialPartySnapshot{&self.customer}
+    #[must_use] pub fn lines(&self)->&[CommercialLine]{&self.lines}
+    #[must_use] pub fn issued_snapshot(&self)->Option<&IssuedInvoiceSnapshot>{self.issued.as_ref()}
+    #[must_use] pub const fn paid_minor(&self)->i64{self.paid_minor}
+    #[must_use] pub const fn credited_minor(&self)->i64{self.credited_minor}
+    #[must_use] pub fn source_quote_id(&self)->Option<&RecordId>{self.source_quote_id.as_ref()}
+    pub fn total_minor(&self)->DomainResult<i64>{
+        self.issued.as_ref().map_or_else(||commercial_lines_total(&self.lines),|snapshot|Ok(snapshot.total_minor))
+    }
+    pub fn outstanding_minor(&self)->DomainResult<i64>{
+        let settled=self.paid_minor.checked_add(self.credited_minor).ok_or(DomainError::ArithmeticOverflow)?;
+        Ok(self.total_minor()?.checked_sub(settled).ok_or(DomainError::ArithmeticOverflow)?.max(0))
+    }
+    pub fn set_customer(&mut self,customer:CommercialPartySnapshot)->DomainResult<()>{self.require_draft()?;self.customer=customer;Ok(())}
+    pub fn set_dates(&mut self,issue_date:Date,due_date:Option<Date>)->DomainResult<()>{
+        self.require_draft()?;
+        if due_date.is_some_and(|date|date<issue_date){return Err(DomainError::InvalidInvoiceDates("invoice due date cannot be before issue date".into()));}
+        self.issue_date=issue_date;self.due_date=due_date;Ok(())
+    }
+    pub fn add_line(&mut self,line:CommercialLine)->DomainResult<()>{
+        self.require_draft()?;
+        if self.lines.iter().any(|existing|existing.id==line.id){return Err(DomainError::Conflict("duplicate invoice line id".into()));}
+        self.lines.push(line);Ok(())
+    }
+    pub fn replace_line(&mut self,line:CommercialLine)->DomainResult<()>{
+        self.require_draft()?;
+        let existing=self.lines.iter_mut().find(|existing|existing.id==line.id).ok_or_else(||DomainError::Conflict("invoice line does not exist".into()))?;
+        *existing=line;Ok(())
+    }
+    pub fn remove_line(&mut self,line_id:&RecordId)->DomainResult<()>{
+        self.require_draft()?;
+        let index=self.lines.iter().position(|line|&line.id==line_id).ok_or_else(||DomainError::Conflict("invoice line does not exist".into()))?;
+        self.lines.remove(index);Ok(())
+    }
+    pub fn issue(&mut self,invoice_number:CommercialNumber)->DomainResult<&IssuedInvoiceSnapshot>{
+        self.require_draft()?;
+        let total_minor=commercial_lines_total(&self.lines)?;
+        self.issued=Some(IssuedInvoiceSnapshot{invoice_id:self.id.clone(),invoice_number,customer:self.customer.clone(),issue_date:self.issue_date,due_date:self.due_date,lines:self.lines.clone(),total_minor,source_quote_id:self.source_quote_id.clone()});
+        self.status=InvoiceStatus::Issued;
+        Ok(self.issued.as_ref().expect("issued snapshot was just set"))
+    }
+    pub fn record_manual_payment(&mut self,amount_minor:i64)->DomainResult<()>{
+        if !matches!(self.status,InvoiceStatus::Issued|InvoiceStatus::PartPaid){return Err(DomainError::InvalidTransition("manual invoice payment requires an active issued invoice".into()));}
+        if amount_minor<=0{return Err(DomainError::InvalidAmount("manual invoice payment must be positive whole pence".into()));}
+        if amount_minor>self.outstanding_minor()?{return Err(DomainError::InvalidAmount("manual invoice payment cannot exceed the outstanding balance".into()));}
+        self.paid_minor=self.paid_minor.checked_add(amount_minor).ok_or(DomainError::ArithmeticOverflow)?;
+        self.refresh_payment_status()?;Ok(())
+    }
+    pub fn apply_credit(&mut self,amount_minor:i64)->DomainResult<()>{
+        if !matches!(self.status,InvoiceStatus::Issued|InvoiceStatus::PartPaid|InvoiceStatus::Paid){return Err(DomainError::InvalidTransition("credit requires an issued invoice".into()));}
+        if amount_minor<0{return Err(DomainError::InvalidAmount("credit must be non-negative whole pence".into()));}
+        let remaining=self.total_minor()?.checked_sub(self.credited_minor).ok_or(DomainError::ArithmeticOverflow)?;
+        if amount_minor>remaining{return Err(DomainError::InvalidAmount("credit cannot exceed the remaining creditable amount".into()));}
+        self.credited_minor=self.credited_minor.checked_add(amount_minor).ok_or(DomainError::ArithmeticOverflow)?;
+        self.refresh_payment_status()?;Ok(())
+    }
+    fn refresh_payment_status(&mut self)->DomainResult<()>{
+        self.status=if self.paid_minor==0{InvoiceStatus::Issued}else if self.outstanding_minor()?==0{InvoiceStatus::Paid}else{InvoiceStatus::PartPaid};Ok(())
+    }
+    fn require_draft(&self)->DomainResult<()>{if self.status!=InvoiceStatus::Draft{return Err(DomainError::InvalidTransition("invoice commercial facts are immutable after issue".into()));}Ok(())}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreditNoteStatus { Draft, Issued, Cancelled }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditNoteLine {
+    id:RecordId,
+    invoice_line_id:RecordId,
+    description:String,
+    quantity_subunits:i64,
+    unit_price_minor:i64,
+}
+impl CreditNoteLine {
+    pub fn new(id:RecordId,invoice_line:&CommercialLine,quantity_subunits:i64)->DomainResult<Self>{
+        if quantity_subunits<=0||quantity_subunits>invoice_line.quantity_subunits(){return Err(DomainError::InvalidAmount("credit quantity must be positive and cannot exceed the referenced invoice line".into()));}
+        let line=Self{id,invoice_line_id:invoice_line.id.clone(),description:invoice_line.description.clone(),quantity_subunits,unit_price_minor:invoice_line.unit_price_minor};
+        line.total_minor()?;Ok(line)
+    }
+    #[must_use] pub fn id(&self)->&RecordId{&self.id}
+    #[must_use] pub fn invoice_line_id(&self)->&RecordId{&self.invoice_line_id}
+    #[must_use] pub fn description(&self)->&str{&self.description}
+    #[must_use] pub const fn quantity_subunits(&self)->i64{self.quantity_subunits}
+    #[must_use] pub const fn unit_price_minor(&self)->i64{self.unit_price_minor}
+    pub fn total_minor(&self)->DomainResult<i64>{i64::try_from(i128::from(self.quantity_subunits).checked_mul(i128::from(self.unit_price_minor)).ok_or(DomainError::ArithmeticOverflow)?).map_err(|_|DomainError::ArithmeticOverflow)}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditNote {
+    id:RecordId,
+    invoice_id:RecordId,
+    status:CreditNoteStatus,
+    lines:Vec<CreditNoteLine>,
+    issued_number:Option<CommercialNumber>,
+}
+impl CreditNote {
+    #[must_use] pub fn draft(id:RecordId,invoice_id:RecordId)->Self{Self{id,invoice_id,status:CreditNoteStatus::Draft,lines:Vec::new(),issued_number:None}}
+    #[must_use] pub fn id(&self)->&RecordId{&self.id}
+    #[must_use] pub fn invoice_id(&self)->&RecordId{&self.invoice_id}
+    #[must_use] pub const fn status(&self)->CreditNoteStatus{self.status}
+    #[must_use] pub fn lines(&self)->&[CreditNoteLine]{&self.lines}
+    #[must_use] pub fn issued_number(&self)->Option<&CommercialNumber>{self.issued_number.as_ref()}
+    pub fn total_minor(&self)->DomainResult<i64>{
+        if self.lines.is_empty(){return Err(DomainError::Conflict("credit note requires at least one line before issue".into()));}
+        self.lines.iter().try_fold(0_i64,|total,line|total.checked_add(line.total_minor()?).ok_or(DomainError::ArithmeticOverflow))
+    }
+    pub fn add_line(&mut self,line:CreditNoteLine)->DomainResult<()>{
+        if self.status!=CreditNoteStatus::Draft{return Err(DomainError::InvalidTransition("credit note commercial facts are immutable after issue".into()));}
+        if self.lines.iter().any(|existing|existing.id==line.id||existing.invoice_line_id==line.invoice_line_id){return Err(DomainError::Conflict("duplicate credit note or referenced invoice line".into()));}
+        self.lines.push(line);Ok(())
+    }
+    pub fn issue(&mut self,number:CommercialNumber)->DomainResult<()>{
+        if self.status!=CreditNoteStatus::Draft{return Err(DomainError::InvalidTransition("only a draft credit note can be issued".into()));}
+        self.total_minor()?;self.issued_number=Some(number);self.status=CreditNoteStatus::Issued;Ok(())
+    }
+    pub fn cancel(&mut self)->DomainResult<()>{
+        if self.status==CreditNoteStatus::Cancelled{return Err(DomainError::InvalidTransition("credit note is already cancelled".into()));}
+        self.status=CreditNoteStatus::Cancelled;Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -598,4 +779,82 @@ mod tests {
     #[test] fn provenance_rejects_blanks(){assert!(SourceProvenance::new(SourceKind::Csv,Some(" ".into()),None,None).is_err());assert!(SourceProvenance::new(SourceKind::Ofx,Some("ofx:abc".into()),None,None).is_ok());}
     #[test] fn payment_preserves_provenance(){let p=Payment::new(id("p1"),d(),a(1500),PaymentDirection::Inbound,SettlementAccount::BusinessBank,Some(id("c")),SourceProvenance::new(SourceKind::Csv,Some("file:12".into()),Some("sha256:abc".into()),None).unwrap());assert_eq!(p.amount().minor(),1500);assert_eq!(p.provenance().kind(),SourceKind::Csv);}
     #[test] fn posting_plans_never_contain_zero_or_negative_lines(){let e=ExpenseRecord::new(id("e4"),"Private",d(),a(1),ExpenseCategory::Travel,BusinessUse::Private,SettlementAccount::Cash,None,SourceProvenance::manual()).unwrap();let p=plan_expense(&e).unwrap();assert!(p.lines.iter().all(|x|x.amount_minor>0));assert!(p.is_balanced());}
+}
+
+/// A checked receivable balance. Credits never increment manual payment facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvoiceBalance { total_minor: i64, manual_paid_minor: i64, credited_minor: i64 }
+impl InvoiceBalance {
+    pub fn new(total_minor: i64) -> DomainResult<Self> {
+        if total_minor < 0 { return Err(DomainError::InvalidAmount("invoice total cannot be negative".into())); }
+        Ok(Self { total_minor, manual_paid_minor: 0, credited_minor: 0 })
+    }
+    #[must_use] pub const fn outstanding_minor(self) -> i64 { self.total_minor - self.manual_paid_minor - self.credited_minor }
+    #[must_use] pub const fn manual_paid_minor(self) -> i64 { self.manual_paid_minor }
+    #[must_use] pub const fn credited_minor(self) -> i64 { self.credited_minor }
+    pub fn record_manual_payment(&mut self, amount: i64) -> DomainResult<()> {
+        self.validate_reduction(amount)?;
+        self.manual_paid_minor = self.manual_paid_minor.checked_add(amount).ok_or(DomainError::ArithmeticOverflow)?;
+        Ok(())
+    }
+    pub fn apply_credit(&mut self, amount: i64) -> DomainResult<()> {
+        self.validate_reduction(amount)?;
+        self.credited_minor = self.credited_minor.checked_add(amount).ok_or(DomainError::ArithmeticOverflow)?;
+        Ok(())
+    }
+    fn validate_reduction(self, amount: i64) -> DomainResult<()> {
+        if amount <= 0 || amount > self.outstanding_minor() { return Err(DomainError::InvalidAmount("amount exceeds remaining invoice balance or is not positive".into())); }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreditNoteState { Draft, Issued, Cancelled }
+
+/// Credit lines retain original line identity, description and price. Quantity is
+/// bounded by the original line less quantities already credited by issued notes.
+pub fn validate_credit_line(original: &CommercialLine, credit: &CommercialLine, already_credited_quantity: i64) -> DomainResult<i64> {
+    if original.id != credit.id || original.description != credit.description || original.unit_price_minor != credit.unit_price_minor
+        || already_credited_quantity < 0 || already_credited_quantity > original.quantity_subunits
+        || credit.quantity_subunits > original.quantity_subunits - already_credited_quantity {
+        return Err(DomainError::Conflict("credit must preserve original line facts and remaining quantity".into()));
+    }
+    credit.total_minor()
+}
+
+#[cfg(test)]
+mod invoice_balance_tests {
+    use super::*;
+    #[test]
+    fn sbc8a3_credit_reduces_balance_without_fabricating_payment() {
+        let mut balance = InvoiceBalance::new(1000).unwrap();
+        balance.apply_credit(400).unwrap();
+        assert_eq!((balance.outstanding_minor(),balance.manual_paid_minor(),balance.credited_minor()),(600,0,400));
+        balance.record_manual_payment(600).unwrap();
+        assert_eq!(balance.outstanding_minor(),0);
+        let before=balance;
+        assert!(balance.apply_credit(1).is_err());
+        assert!(balance.record_manual_payment(-1).is_err());
+        assert_eq!(balance,before);
+    }
+    #[test]
+    fn sbc8a3_balance_handles_integer_boundary() {
+        let mut balance=InvoiceBalance::new(i64::MAX).unwrap();
+        balance.record_manual_payment(i64::MAX-1).unwrap();
+        let before=balance;
+        assert!(balance.apply_credit(2).is_err());
+        assert_eq!(before,balance);
+        balance.apply_credit(1).unwrap();
+        assert_eq!(balance.outstanding_minor(),0);
+    }
+    #[test]
+    fn sbc8a3_credit_preserves_source_line_and_remaining_quantity() {
+        let id=RecordId::new("line-1").unwrap();
+        let original=CommercialLine::new(id.clone(),"Service",3,100).unwrap();
+        let credit=CommercialLine::new(id.clone(),"Service",2,100).unwrap();
+        assert_eq!(validate_credit_line(&original,&credit,1).unwrap(),200);
+        assert!(validate_credit_line(&original,&credit,2).is_err());
+        assert!(validate_credit_line(&original,&CommercialLine::new(id,"Changed",1,100).unwrap(),0).is_err());
+        assert!(validate_credit_line(&original,&credit,i64::MAX).is_err());
+    }
 }
