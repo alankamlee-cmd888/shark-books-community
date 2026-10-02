@@ -1,0 +1,78 @@
+name: SBC8A4 Typst Windows Bakeoff
+
+on:
+  push:
+    branches:
+      - sbc8a4-renderer-bakeoff-20261002a
+
+permissions:
+  contents: read
+
+jobs:
+  typst-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact branch commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install exact Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc --version
+          cargo --version
+
+      - name: Run bounded embedded Typst proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location 'research/sbc8a4-renderer-bakeoff/typst'
+          $expected='8fe8c18f3074557d0251541e7de12c6d7ba62881a9bb9bbb22d4a52da45566cd'
+          cargo generate-lockfile
+          if($LASTEXITCODE -ne 0){throw "LOCK_GENERATION_FAILED:$LASTEXITCODE"}
+          $lock=(Get-FileHash Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($lock -ne $expected){throw "LOCK_MISMATCH:$lock"}
+          cargo run --locked --release
+          if($LASTEXITCODE -ne 0){throw "CARGO_RUN_FAILED:$LASTEXITCODE"}
+          $ha=(Get-FileHash fixture-a.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hb=(Get-FileHash fixture-b.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($ha -ne $hb){throw "NONDETERMINISTIC_PDF:$ha:$hb"}
+          cargo check --locked --release --lib
+          if($LASTEXITCODE -ne 0){throw "WINDOWS_CHECK_FAILED:$LASTEXITCODE"}
+          cargo tree --locked --edges normal --prefix none | Set-Content -Encoding UTF8 cargo-tree.txt
+          cargo metadata --locked --format-version 1 | Set-Content -Encoding UTF8 cargo-metadata.json
+          $targetBytes=(Get-ChildItem target -File -Recurse | Measure-Object Length -Sum).Sum
+          $summary=[ordered]@{
+            schema_version=1
+            candidate='Typst embedded'
+            typst='0.15.1'
+            typst_as_lib='0.16.0'
+            platform='GitHub Actions windows-latest'
+            host_render='PASS'
+            windows_check='PASS'
+            deterministic_pdf=$true
+            pdf_bytes=(Get-Item fixture-a.pdf).Length
+            pdf_sha256=$ha
+            cargo_lock_sha256=$lock
+            target_bytes=$targetBytes
+            commit=$env:GITHUB_SHA
+            run_id=$env:GITHUB_RUN_ID
+            remote_resources_used=$false
+          }
+          $summary | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 SUMMARY.json
+
+      - name: Upload bounded proof evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: SBC8A4_TYPST_WINDOWS_RESULT
+          path: |
+            research/sbc8a4-renderer-bakeoff/typst/SUMMARY.json
+            research/sbc8a4-renderer-bakeoff/typst/fixture-a.pdf
+            research/sbc8a4-renderer-bakeoff/typst/Cargo.lock
+            research/sbc8a4-renderer-bakeoff/typst/cargo-tree.txt
+            research/sbc8a4-renderer-bakeoff/typst/cargo-metadata.json
+          if-no-files-found: warn
+          retention-days: 7
