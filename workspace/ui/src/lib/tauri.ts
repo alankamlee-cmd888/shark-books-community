@@ -974,3 +974,64 @@ export function selectStorageRoot(books: BooksRef): Promise<OwnerStorageRootSele
 export function reportSummary(books: BooksRef): Promise<OwnerReportSummary> {
   return nativeInvoke("owner_report_summary", { request: { books } });
 }
+
+export type InvoiceState = "draft" | "issued" | "part_paid" | "paid" | "cancelled";
+export type CreditNoteState = "draft" | "issued" | "cancelled";
+export interface InvoiceCustomerSnapshot { customer_id: string; display_name: string; postal_address: string | null; email: string | null; phone: string | null }
+export interface InvoiceLineView { line_id: string; description: string; quantity_subunits: number; unit_price_minor: number; total_minor: number; position: number }
+export interface IssuedInvoiceSnapshot {
+  invoice_number: string; customer: InvoiceCustomerSnapshot; issue_date: string; due_date: string | null;
+  lines: InvoiceLineView[]; total_minor: number; source_quote_id: string | null; issued_by: string; issued_at: string;
+}
+export interface OwnerInvoiceView {
+  invoice_id: string; state: InvoiceState; customer: InvoiceCustomerSnapshot; issue_date: string; due_date: string | null;
+  lines: InvoiceLineView[]; total_minor: number; paid_minor: number; credited_minor: number; outstanding_minor: number;
+  source_quote_id: string | null; issued_snapshot: IssuedInvoiceSnapshot | null;
+  created_by: string; created_at: string; updated_by: string; updated_at: string;
+}
+export interface OwnerInvoiceMutationView {
+  mutation_id: number; invoice_id: string; action: string; before: OwnerInvoiceView | null;
+  after: OwnerInvoiceView | null; actor: string; occurred_at: string;
+}
+export interface CreditNoteLineView { line_id: string; invoice_line_id: string; description: string; quantity_subunits: number; unit_price_minor: number; total_minor: number; position: number }
+export interface IssuedCreditNoteSnapshot { credit_note_number: string; invoice_id: string; invoice_number: string; customer: InvoiceCustomerSnapshot; lines: CreditNoteLineView[]; total_minor: number; issued_by: string; issued_at: string }
+export interface OwnerCreditNoteView { credit_note_id: string; invoice_id: string; state: CreditNoteState; lines: CreditNoteLineView[]; total_minor: number; issued_snapshot: IssuedCreditNoteSnapshot | null; created_by: string; created_at: string; updated_by: string; updated_at: string }
+export interface OwnerCreditNoteMutationView { mutation_id: number; credit_note_id: string; action: string; before: OwnerCreditNoteView | null; after: OwnerCreditNoteView | null; actor: string; occurred_at: string }
+export type OwnerInvoiceReadOutcome =
+  | { kind: "invoices"; bridgeVersion: number; invoices: OwnerInvoiceView[]; bankPaymentCreated: false; providerNetworkUsed: false }
+  | { kind: "invoiceDetail"; bridgeVersion: number; invoice: OwnerInvoiceView; history: OwnerInvoiceMutationView[]; creditNotes: OwnerCreditNoteView[]; bankPaymentCreated: false; providerNetworkUsed: false }
+  | { kind: "creditNotes"; bridgeVersion: number; creditNotes: OwnerCreditNoteView[]; bankPaymentCreated: false; providerNetworkUsed: false }
+  | { kind: "creditNoteDetail"; bridgeVersion: number; creditNote: OwnerCreditNoteView; history: OwnerCreditNoteMutationView[]; invoice: OwnerInvoiceView; bankPaymentCreated: false; providerNetworkUsed: false };
+export type OwnerInvoiceMutationOutcome =
+  | { kind: "invoice"; bridgeVersion: number; invoice: OwnerInvoiceView; mutation: OwnerInvoiceMutationView; bankPaymentCreated: false; providerNetworkUsed: false; requiresFurtherAutomaticAction: false }
+  | { kind: "creditNote"; bridgeVersion: number; creditNote: OwnerCreditNoteView; mutation: OwnerCreditNoteMutationView; invoice: OwnerInvoiceView; invoiceMutation: OwnerInvoiceMutationView | null; bankPaymentCreated: false; providerNetworkUsed: false; requiresFurtherAutomaticAction: false };
+export type InvoiceMutation =
+  | { operation: "createInvoiceDraft"; invoiceId: string; customerId: string; issueDate: string; dueDate: string | null }
+  | { operation: "setInvoiceCustomer"; invoiceId: string; customerId: string }
+  | { operation: "setInvoiceDates"; invoiceId: string; issueDate: string; dueDate: string | null }
+  | { operation: "saveInvoiceLine"; invoiceId: string; lineId: string; description: string; quantitySubunits: number; unitPricePence: number }
+  | { operation: "removeInvoiceLine"; invoiceId: string; lineId: string }
+  | { operation: "issueInvoice"; invoiceId: string; invoiceNumber: string }
+  | { operation: "cancelInvoice"; invoiceId: string }
+  | { operation: "recordManualPayment"; invoiceId: string; amountPence: number }
+  | { operation: "convertAcceptedQuote"; quoteId: string; invoiceId: string; issueDate: string; dueDate: string | null }
+  | { operation: "createCreditNoteDraft"; creditNoteId: string; invoiceId: string }
+  | { operation: "saveCreditNoteLine"; creditNoteId: string; lineId: string; invoiceLineId: string; quantitySubunits: number }
+  | { operation: "removeCreditNoteLine"; creditNoteId: string; lineId: string }
+  | { operation: "issueCreditNote"; creditNoteId: string; creditNoteNumber: string }
+  | { operation: "cancelCreditNote"; creditNoteId: string };
+export function listInvoices(books: BooksRef, state?: InvoiceState, limit = 500): Promise<OwnerInvoiceReadOutcome> {
+  return nativeInvoke("owner_contacts_list", { request: { books, operation: "invoicesList", state: state ?? null, limit } });
+}
+export function invoiceDetail(books: BooksRef, invoiceId: string, limit = 500): Promise<OwnerInvoiceReadOutcome> {
+  return nativeInvoke("owner_contacts_list", { request: { books, operation: "invoiceDetail", invoiceId, limit } });
+}
+export function listCreditNotes(books: BooksRef, invoiceId?: string, state?: CreditNoteState, limit = 500): Promise<OwnerInvoiceReadOutcome> {
+  return nativeInvoke("owner_contacts_list", { request: { books, operation: "creditNotesList", invoiceId: invoiceId ?? null, state: state ?? null, limit } });
+}
+export function creditNoteDetail(books: BooksRef, creditNoteId: string, limit = 500): Promise<OwnerInvoiceReadOutcome> {
+  return nativeInvoke("owner_contacts_list", { request: { books, operation: "creditNoteDetail", creditNoteId, limit } });
+}
+export function mutateInvoice(books: BooksRef, mutation: InvoiceMutation): Promise<OwnerInvoiceMutationOutcome> {
+  return nativeInvoke("owner_contacts_save", { request: { books, ...mutation } });
+}

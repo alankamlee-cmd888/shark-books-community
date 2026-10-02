@@ -559,6 +559,7 @@ pub(super) fn ensure_application_schema(db: &Db) -> FoundationResult<()> {
                 db.conn().execute_batch(sql).map_err(sqlite_error)?;
             }
         }
+        crate::invoice_application::ensure_invoice_schema(db)?;
         db.conn()
             .execute(
                 "INSERT INTO shark_application_meta(id, schema_version)
@@ -613,10 +614,10 @@ impl Books {
             .map_err(sqlite_error)?;
         match operation() {
             Ok(value) => {
-                self.db
-                    .conn()
-                    .execute_batch(&format!("RELEASE {name}"))
-                    .map_err(sqlite_error)?;
+                if let Err(error) = self.db.conn().execute_batch(&format!("RELEASE {name}")) {
+                    let _ = self.db.conn().execute_batch(&format!("ROLLBACK TO {name}; RELEASE {name}"));
+                    return Err(sqlite_error(error));
+                }
                 Ok(value)
             }
             Err(error) => {

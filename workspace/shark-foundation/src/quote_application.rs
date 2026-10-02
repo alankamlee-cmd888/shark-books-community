@@ -345,16 +345,30 @@ impl Books {
             .map_err(sqlite_error)?;
         let kind = QuoteKind::from_persisted(&row.0)?;
         let state = QuoteState::from_persisted(&row.1)?;
-        let conversion_eligible = match row.7 {
+        let persisted_conversion_eligible = match row.7 {
             0 => false,
             1 => true,
             _ => return Err(storage("persisted conversion eligibility is invalid")),
         };
-        if conversion_eligible != (state == QuoteState::Accepted) {
+        if persisted_conversion_eligible != (state == QuoteState::Accepted) {
             return Err(storage(
                 "persisted conversion eligibility conflicts with commercial state",
             ));
         }
+        let conversion_count: i64 = self
+            .db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM shark_quote_conversion
+                 WHERE company_slug = ?1 AND quote_id = ?2",
+                (&self.company_slug, &quote_id),
+                |conversion_row| conversion_row.get(0),
+            )
+            .map_err(sqlite_error)?;
+        if conversion_count > 1 {
+            return Err(storage("quote conversion identity is not unique"));
+        }
+        let conversion_eligible = persisted_conversion_eligible && conversion_count == 0;
         let customer = QuoteCustomerSnapshotView {
             customer_id: row.2,
             display_name: row.3,
@@ -1060,18 +1074,18 @@ mod tests {
                 before_transactions,
                 "quote and estimate mutations must remain non-posting"
             );
-            let invoice_table_count: i64 = books
+            let invoice_count: i64 = books
                 .db
                 .conn()
                 .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE '%invoice%'",
-                    [],
+                    "SELECT COUNT(*) FROM shark_invoice WHERE company_slug = ?1",
+                    (&books.company_slug,),
                     |row| row.get(0),
                 )
-                .expect("invoice table count");
+                .expect("invoice row count");
             assert_eq!(
-                invoice_table_count, 0,
-                "acceptance must not create invoice storage"
+                invoice_count, 0,
+                "acceptance must not create an invoice"
             );
             drop(books);
             remove_sqlite_artifacts(&path);
