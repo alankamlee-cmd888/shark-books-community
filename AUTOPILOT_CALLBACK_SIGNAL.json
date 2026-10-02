@@ -1,0 +1,15 @@
+{
+  "candidate_sha": null,
+  "emitted_at_utc": "2026-09-30T10:54:58.346751Z",
+  "event_id": "SIQI_SIQI_R2_F08_CACHE_PRESERVATION_RECONSTRUCTION_0b1607a3e0fbaee4",
+  "event_type": "AUTOPILOT_LANE_READY",
+  "lane": "SIQI",
+  "privacy": "metadata_only_no_local_paths_no_evidence_body",
+  "published_at_utc": "2026-09-30T10:55:11.139489Z",
+  "purpose": "MTD Shark Autopilot terminal-event signal for ChatGPT Work.",
+  "requires_chatgpt_resume": true,
+  "schema_version": 1,
+  "stage": "POST_ASTRA_H_SUCCESSOR_COMPLETE_F08_CACHE_BOUNDARY_NARROWED",
+  "status": "READY_CONTINUATION",
+  "task_id": "SIQI_R2_F08_CACHE_PRESERVATION_RECONSTRUCTION"
+}
