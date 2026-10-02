@@ -338,3 +338,44 @@ workflows:
     artifacts:
       - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_CODEMAGIC_RESULT_*.zip
       - artifacts/SBC7B2_FT3_FT4_SUPERGATE_MAC_SUMMARY.*
+
+
+  sbc8a4-typst-apple-bakeoff:
+    name: SBC-8A4 Typst Embedded Bake-off — Apple
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 26.4
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Ensure Rust and run bounded Typst Apple proof
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc8a4_typst_codemagic.sh"
+          "$CM_BUILD_DIR/ci/run_sbc8a4_typst_codemagic.sh"
+    artifacts:
+      - artifacts/SBC8A4_TYPST_MAC_RESULT_*.zip
+      - artifacts/SBC8A4_TYPST_MAC_RESULT_*/SUMMARY.json
+
+  sbc8a4-typst-windows-bakeoff:
+    name: SBC-8A4 Typst Embedded Bake-off — Windows
+    instance_type: windows_x2
+    max_build_duration: 120
+    environment:
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Run bounded Typst Windows proof
+        script: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CM_BUILD_DIR\ci\run_sbc8a4_typst_windows.ps1"
+    artifacts:
+      - artifacts/SBC8A4_TYPST_WINDOWS_RESULT_*.zip
+      - artifacts/SBC8A4_TYPST_WINDOWS_RESULT_*/SUMMARY.json
