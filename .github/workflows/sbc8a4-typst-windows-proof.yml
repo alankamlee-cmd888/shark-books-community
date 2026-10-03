@@ -1,0 +1,60 @@
+name: SBC8A4 Typst Windows no-cost proof
+
+on:
+  push:
+    branches:
+      - sbc8a4-renderer-bakeoff-20261002a
+    paths:
+      - ".github/workflows/sbc8a4-typst-windows-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typst-windows-proof:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify frozen lock and toolchain
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          $crate = Join-Path $env:GITHUB_WORKSPACE 'research\sbc8a4-renderer-bakeoff\typst'
+          $lock = (Get-FileHash (Join-Path $crate 'Cargo.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($lock -ne '8fe8c18f3074557d0251541e7de12c6d7ba62881a9bb9bbb22d4a52da45566cd') { throw "LOCK_MISMATCH:$lock" }
+      - name: Run bounded Windows Typst proof
+        shell: pwsh
+        run: |
+          $crate = Join-Path $env:GITHUB_WORKSPACE 'research\sbc8a4-renderer-bakeoff\typst'
+          Set-Location $crate
+          cargo run --locked --release
+          if ($LASTEXITCODE -ne 0) { throw "CARGO_RUN_FAILED:$LASTEXITCODE" }
+          $ha=(Get-FileHash fixture-a.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hb=(Get-FileHash fixture-b.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($ha -ne $hb) { throw 'NONDETERMINISTIC_PDF' }
+          cargo check --locked --release --lib
+          if ($LASTEXITCODE -ne 0) { throw "CARGO_CHECK_FAILED:$LASTEXITCODE" }
+          $out=Join-Path $env:GITHUB_WORKSPACE 'sbc8a4-windows-proof'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item fixture-a.pdf (Join-Path $out 'fixture-a.pdf')
+          Copy-Item Cargo.lock (Join-Path $out 'Cargo.lock')
+          [ordered]@{
+            schema_version=1
+            candidate='Typst embedded'
+            platform='GitHub Actions windows-latest'
+            commit=$env:GITHUB_SHA
+            frozen_lock_sha256='8fe8c18f3074557d0251541e7de12c6d7ba62881a9bb9bbb22d4a52da45566cd'
+            deterministic_pdf=$true
+            pdf_sha256=$ha
+            remote_resources_used=$false
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $out 'SUMMARY.json')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SBC8A4_TYPST_WINDOWS_PROOF
+          path: sbc8a4-windows-proof
