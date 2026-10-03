@@ -7,3 +7,5 @@ workspace/shark-foundation/tests/fixtures/sample_receipt.txt text eol=lf
 # Vite source template and tracked production output must remain LF on Windows.
 workspace/ui/index.html text eol=lf
 workspace/dist/** text eol=lf
+# Frozen SBC8A4 Typst lock is byte-hashed by Windows/Apple bake-off gates.
+research/sbc8a4-renderer-bakeoff/typst/Cargo.lock text eol=lf
