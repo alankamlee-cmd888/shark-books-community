@@ -38,7 +38,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw "CARGO_RUN_FAILED:$LASTEXITCODE"}
           $ha=(Get-FileHash fixture-a.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
           $hb=(Get-FileHash fixture-b.pdf -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($ha -ne $hb){throw "NONDETERMINISTIC_PDF:$ha:$hb"}
+          if($ha -ne $hb){throw "NONDETERMINISTIC_PDF:${ha}:${hb}"}
           cargo check --locked --release --lib
           if($LASTEXITCODE -ne 0){throw "WINDOWS_CHECK_FAILED:$LASTEXITCODE"}
           cargo tree --locked --edges normal --prefix none | Set-Content -Encoding UTF8 cargo-tree.txt
