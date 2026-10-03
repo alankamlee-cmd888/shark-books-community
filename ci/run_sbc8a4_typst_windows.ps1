@@ -9,8 +9,6 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 rustc --version | Set-Content -Encoding UTF8 (Join-Path $out 'rustc.txt')
 cargo --version | Set-Content -Encoding UTF8 (Join-Path $out 'cargo.txt')
 Set-Location $crate
-cargo generate-lockfile
-if($LASTEXITCODE -ne 0){throw "LOCK_GENERATION_FAILED:$LASTEXITCODE"}
 $lock=(Get-FileHash Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
 if($lock -ne $expected){throw "LOCK_MISMATCH:$lock"}
 $lock | Set-Content -Encoding ASCII (Join-Path $out 'cargo_lock_sha256.txt')

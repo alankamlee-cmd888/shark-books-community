@@ -10,7 +10,6 @@ rustc --version | tee "$OUT/rustc.txt"
 cargo --version | tee "$OUT/cargo.txt"
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 cd "$CRATE"
-cargo generate-lockfile
 ACTUAL_LOCK="$(shasum -a 256 Cargo.lock | awk '{print $1}')"
 test "$ACTUAL_LOCK" = "$EXPECTED_LOCK"
 echo "$ACTUAL_LOCK" > "$OUT/cargo_lock_sha256.txt"
