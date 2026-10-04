@@ -1,0 +1,67 @@
+{
+  "document_type": "SBC_STANDING_OWNER_AUTOMATION_POLICY",
+  "schema_version": 1,
+  "date": "2026-09-18",
+  "status": "FROZEN_READY_FOR_IMPLEMENTATION",
+  "repository": "alankamlee-cmd888/shark-books-community",
+  "current_state": {
+    "pr": 29,
+    "base_sha": "ebf1ae9d0e10f0f427625d4c3ab5c1703299d154",
+    "branch": "sbc7b2-ft3-ft4-integrated-20260916",
+    "head_sha": "1ad86cc7715aa38a8162952f02c8debe3d743736",
+    "r2_transport": "EXISTING_AUDITED_V3_RUNNER_ONLY_UNTIL_R2_ADJUDICATED"
+  },
+  "owner_exceptions": {
+    "scope": "OWNER_EXCEPTION_SCOPE",
+    "cost": "OWNER_EXCEPTION_COST",
+    "privacy_security": "OWNER_EXCEPTION_PRIVACY_SECURITY",
+    "architecture": "OWNER_EXCEPTION_ARCHITECTURE",
+    "public_release": "OWNER_EXCEPTION_PUBLIC_RELEASE"
+  },
+  "standing_rules": {
+    "scope_expansion_allowed": false,
+    "automatic_paid_service_allowed": false,
+    "free_local_open_source_allowed_subject_to_existing_gates": true,
+    "privacy_authority_expansion_allowed": false,
+    "equivalent_implementation_substitution_allowed": true,
+    "material_architecture_change_allowed": false,
+    "github_development_publication_allowed": true,
+    "automatic_reviewed_commit_push_pr_update_allowed": true,
+    "automatic_protected_merge_allowed_when_all_frozen_evidence_conditions_pass": true,
+    "non_public_preview_allowed": true,
+    "public_go_live_allowed": false,
+    "mtdshark_co_uk_required_state": "HOLDING_PAGE",
+    "explicit_contemporaneous_owner_go_live_authorisation_required": true
+  },
+  "sle": {
+    "verified_baseline": "1.9.0",
+    "historic_sbc_profile_reuse_for_pr29": false,
+    "dedicated_live_profile_required_after_r2": true,
+    "semantic_model": "qwen3:4b-instruct",
+    "initial_limits": {
+      "concurrent_write_tasks_per_branch": 1,
+      "semantic_max_write_files": 2,
+      "exact_max_write_files": 2,
+      "model_selected_paths": false
+    }
+  },
+  "repair_policy": {
+    "automatic_bounded_repair_cycles": 2,
+    "harness_only_repairs_may_auto_rerun": true,
+    "gate_waiver_allowed": false,
+    "test_weakening_to_pass_allowed": false
+  },
+  "completion_relay": {
+    "required_before_normal_r3_sle_automation": true,
+    "manual_done_message_required": false,
+    "manual_check_result_message_required": false,
+    "preferred_mode": "EVENT_DRIVEN",
+    "hourly_dropbox_polling": "FALLBACK_ONLY"
+  },
+  "privacy": {
+    "full_stage_delta_audit_required": true,
+    "cumulative_data_handling_audit_required": true,
+    "user_facing_transparency_register_required": true
+  },
+  "public_release_invariant": "mtdshark.co.uk remains the holding page until explicit contemporaneous owner public go-live authorisation"
+}
