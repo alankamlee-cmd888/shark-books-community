@@ -42,6 +42,7 @@ cp "$BASE_OUT/SUMMARY.json" "$OUT/base_apple_summary.json"
 
 export PATH="$HOME/.cargo/bin:$PATH"
 rustup target add aarch64-apple-ios-sim
+rustup component add rustfmt
 cd "$BRIDGE"
 cargo fmt --check
 cargo build --release --locked --target aarch64-apple-ios-sim --bin ios_runtime_probe \
