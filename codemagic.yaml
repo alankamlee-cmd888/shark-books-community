@@ -379,3 +379,26 @@ workflows:
     artifacts:
       - artifacts/SBC8A4_TYPST_WINDOWS_RESULT_*.zip
       - artifacts/SBC8A4_TYPST_WINDOWS_RESULT_*/SUMMARY.json
+
+  sbc8a4-pdfmake-apple-proof:
+    name: SBC-8A4 pdfmake Bounded Bridge - Apple Compile Proof
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 26.4
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Ensure Rust and run bounded pdfmake Apple proof
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc8a4_pdfmake_codemagic.sh"
+          "$CM_BUILD_DIR/ci/run_sbc8a4_pdfmake_codemagic.sh"
+    artifacts:
+      - artifacts/SBC8A4_PDFMAKE_APPLE_RESULT_*.zip
+      - artifacts/SBC8A4_PDFMAKE_APPLE_RESULT_*/SUMMARY.json
