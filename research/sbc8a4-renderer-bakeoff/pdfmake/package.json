@@ -1,0 +1,8 @@
+{
+  "name": "sbc8a4-pdfmake-bakeoff",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "pdfmake": "0.3.11"
+  }
+}

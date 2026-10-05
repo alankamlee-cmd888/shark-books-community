@@ -1,0 +1,8 @@
+[package]
+name = "sbc8a4-pdfmake-rust-bridge-proof"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+shark-books-core = { path = "../../../product/shark-books-core" }
