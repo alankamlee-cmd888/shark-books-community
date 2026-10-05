@@ -402,3 +402,27 @@ workflows:
     artifacts:
       - artifacts/SBC8A4_PDFMAKE_APPLE_RESULT_*.zip
       - artifacts/SBC8A4_PDFMAKE_APPLE_RESULT_*/SUMMARY.json
+
+  sbc8a4-pdfmake-ios-simulator-runtime:
+    name: SBC-8A4 pdfmake - iOS Simulator Runtime Proof
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: 26.4
+      vars:
+        RUST_TOOLCHAIN: "1.98.1"
+        CARGO_BUILD_JOBS: "1"
+        CARGO_INCREMENTAL: "0"
+    scripts:
+      - name: Build and execute bounded pdfmake simulator proof
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          chmod +x "$CM_BUILD_DIR/ci/run_sbc8a4_pdfmake_simulator_codemagic.sh"
+          "$CM_BUILD_DIR/ci/run_sbc8a4_pdfmake_simulator_codemagic.sh"
+    artifacts:
+      - artifacts/SBC8A4_PDFMAKE_SIM_RESULT_*.zip
+      - artifacts/SBC8A4_PDFMAKE_SIM_RESULT_*/SUMMARY.json
+      - artifacts/SBC8A4_PDFMAKE_SIM_RESULT_*/simulator_runtime.json
