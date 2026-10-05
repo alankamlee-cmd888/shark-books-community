@@ -13,6 +13,24 @@ APP="$OUT/PdfmakeRuntimeProbe.app"
 
 mkdir -p "$OUT"
 
+SIM_UDID=""
+cleanup() {
+  rc=$?
+  set +e
+  if [ -n "${SIM_UDID:-}" ]; then
+    xcrun simctl shutdown "$SIM_UDID" >/dev/null 2>&1 || true
+  fi
+  (
+    cd "$ROOT/artifacts"
+    rm -f "SBC8A4_PDFMAKE_SIM_RESULT_${BID}.zip"
+    zip -qr "SBC8A4_PDFMAKE_SIM_RESULT_${BID}.zip" "SBC8A4_PDFMAKE_SIM_RESULT_${BID}" || true
+  )
+  exit "$rc"
+}
+trap cleanup EXIT
+exec > >(tee "$OUT/full.log") 2>&1
+set -x
+
 chmod +x "$ROOT/ci/run_sbc8a4_pdfmake_codemagic.sh"
 "$ROOT/ci/run_sbc8a4_pdfmake_codemagic.sh"
 
@@ -124,8 +142,4 @@ print(json.dumps(summary,indent=2))
 PY
 
 xcrun simctl shutdown "$SIM_UDID" >/dev/null 2>&1 || true
-
-(
-  cd "$ROOT/artifacts"
-  zip -qr "SBC8A4_PDFMAKE_SIM_RESULT_$BID.zip" "SBC8A4_PDFMAKE_SIM_RESULT_$BID"
-)
+SIM_UDID=""
