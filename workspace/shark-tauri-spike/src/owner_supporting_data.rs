@@ -18,6 +18,9 @@ use shark_foundation::{
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use tauri_plugin_dialog::DialogExt;
 
+use super::owner_commercial_renderer::{
+    OwnerCommercialPdfStoreReceipt, OwnerCommercialPdfStoreRequest, store_commercial_pdf,
+};
 use super::owner_documents_ocr::NativeDocumentRootRegistry;
 use super::{open_books_impl, OpenBooksRequest};
 
@@ -209,6 +212,7 @@ pub(crate) enum OwnerSupportingSaveRequest {
     Contact(OwnerContactsSaveRequest),
     Quote(OwnerQuoteMutationRequest),
     Invoice(OwnerInvoiceMutationRequest),
+    CommercialPdf(OwnerCommercialPdfStoreRequest),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -473,6 +477,7 @@ pub(crate) enum OwnerSupportingSaveOutcome {
     Contact(OwnerContactSaveOutcome),
     Quote(OwnerQuoteMutationOutcome),
     Invoice(OwnerInvoiceMutationOutcome),
+    CommercialPdf(OwnerCommercialPdfStoreReceipt),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -911,6 +916,7 @@ fn select_storage_root(
 
 #[tauri::command]
 pub(crate) fn owner_contacts_save(
+    roots: tauri::State<'_, NativeDocumentRootRegistry>,
     request: OwnerSupportingSaveRequest,
 ) -> OwnerSupportingDataResult<OwnerSupportingSaveOutcome> {
     match request {
@@ -920,6 +926,9 @@ pub(crate) fn owner_contacts_save(
         OwnerSupportingSaveRequest::Quote(request) => {
             quote_mutation(request).map(OwnerSupportingSaveOutcome::Quote)
         }
+        OwnerSupportingSaveRequest::CommercialPdf(request) => store_commercial_pdf(&roots, request)
+            .map(OwnerSupportingSaveOutcome::CommercialPdf)
+            .map_err(|error| OwnerSupportingDataError::storage(error.message())),
     }
 }
 

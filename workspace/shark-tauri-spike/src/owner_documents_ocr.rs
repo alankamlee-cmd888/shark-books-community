@@ -81,7 +81,7 @@ impl OwnerDocumentError {
     }
 }
 
-type OwnerDocumentResult<T> = Result<T, OwnerDocumentError>;
+pub(crate) type OwnerDocumentResult<T> = Result<T, OwnerDocumentError>;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -184,7 +184,7 @@ impl NativeDocumentRootRegistry {
             .len()
     }
 
-    fn resolve(&self, root_id: &str) -> OwnerDocumentResult<PathBuf> {
+    pub(crate) fn resolve(&self, root_id: &str) -> OwnerDocumentResult<PathBuf> {
         let root_id = bounded_id(root_id.to_string(), "storage root id")?;
         let root = self
             .roots

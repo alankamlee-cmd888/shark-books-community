@@ -1035,3 +1035,30 @@ export function creditNoteDetail(books: BooksRef, creditNoteId: string, limit = 
 export function mutateInvoice(books: BooksRef, mutation: InvoiceMutation): Promise<OwnerInvoiceMutationOutcome> {
   return nativeInvoke("owner_contacts_save", { request: { books, ...mutation } });
 }
+
+
+export interface OwnerCommercialPdfStoreReceipt {
+  bridgeVersion: number;
+  byteLen: number;
+  sha256: string;
+  created: boolean;
+  relativePath: string;
+  maxBytes: number;
+}
+
+export function storeCommercialPdf(
+  storageRootId: string,
+  filename: string,
+  pdfBytes: Uint8Array,
+  expectedSha256: string,
+): Promise<OwnerCommercialPdfStoreReceipt> {
+  return nativeInvoke("owner_contacts_save", {
+    request: {
+      operation: "storeCommercialPdf",
+      storageRootId,
+      filename,
+      pdfBytes: Array.from(pdfBytes),
+      expectedSha256,
+    },
+  });
+}

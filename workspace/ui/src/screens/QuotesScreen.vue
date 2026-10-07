@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import QuotesTable from "../components/QuotesTable.vue";
 import type { BooksSession } from "../lib/session";
 import { errorMessage, formatMoney, penceToInput, readableToken } from "../lib/format";
+import { CommercialDocumentRenderer, quoteCommercialDocumentView } from "../lib/commercialDocumentRenderer";
 import {
   createQuoteDraft,
   issueQuote,
@@ -12,6 +13,7 @@ import {
   removeQuoteLine,
   saveQuoteLine,
   setQuoteCustomer,
+  storeCommercialPdf,
   transitionQuote,
   type OwnerContactView,
   type OwnerQuoteDetailOutcome,
@@ -24,6 +26,7 @@ import {
 } from "../lib/tauri";
 
 const props = defineProps<{ session: BooksSession }>();
+const renderer = new CommercialDocumentRenderer();
 const rows = ref<OwnerQuoteView[]>([]);
 const customers = ref<OwnerContactView[]>([]);
 const detail = ref<OwnerQuoteDetailOutcome | null>(null);
@@ -252,6 +255,40 @@ async function transition(target: QuoteOutcomeState): Promise<void> {
   }
 }
 
+async function savePdf(): Promise<void> {
+  if (!detail.value) return;
+  const storageRootId = props.session.state.storageRootId;
+  if (!storageRootId) {
+    error.value = "Select a document storage folder in Settings before saving PDFs.";
+    return;
+  }
+  busy.value = true;
+  error.value = "";
+  try {
+    const issuerName = props.session.state.home?.companyName;
+    if (!issuerName) throw new Error("The books company name is unavailable.");
+    const rendered = await renderer.render(
+      quoteCommercialDocumentView(detail.value.quote, issuerName),
+    );
+    const receipt = await storeCommercialPdf(
+      storageRootId,
+      rendered.filename,
+      rendered.bytes,
+      rendered.sha256,
+    );
+    if (receipt.sha256 !== rendered.sha256 || receipt.byteLen !== rendered.byteLen) {
+      throw new Error("The stored PDF integrity receipt does not match the rendered bytes.");
+    }
+    message.value = receipt.created
+      ? `PDF saved: ${receipt.relativePath}`
+      : `PDF already saved with identical bytes: ${receipt.relativePath}`;
+  } catch (err) {
+    error.value = errorMessage(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
 onMounted(refresh);
 </script>
 
@@ -288,6 +325,8 @@ onMounted(refresh);
             <div><dt>Total</dt><dd>{{ formatMoney(detail.quote.totalPence) }}</dd></div>
             <div><dt>Posting</dt><dd>None</dd></div>
           </dl>
+          <div class="button-row"><button type="button" class="secondary" data-action-id="COMMERCIAL.SAVE_PDF" :disabled="busy" @click="savePdf">Save PDF</button></div>
+          <p v-if="!session.state.storageRootId" class="subtle">Choose a document storage folder in Settings before saving PDFs.</p>
 
           <template v-if="detail.quote.state === 'draft'">
             <h3>Edit draft</h3>

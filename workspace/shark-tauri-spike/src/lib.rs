@@ -11,6 +11,7 @@ mod owner_bank_review;
 mod owner_documents_ocr;
 mod owner_mutation_audit;
 mod owner_command_text;
+mod owner_commercial_renderer;
 mod owner_read_views;
 mod owner_supporting_data;
 

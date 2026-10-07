@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import InvoicesTable from "../components/InvoicesTable.vue";
 import type { BooksSession } from "../lib/session";
 import { errorMessage, formatMoney, readableToken } from "../lib/format";
+import { CommercialDocumentRenderer, creditNoteCommercialDocumentView, invoiceCommercialDocumentView } from "../lib/commercialDocumentRenderer";
 import {
   listContacts,
   listQuotes,
@@ -11,6 +12,7 @@ import {
   invoiceDetail,
   creditNoteDetail,
   mutateInvoice,
+  storeCommercialPdf,
   type InvoiceMutation,
   type OwnerContactView,
   type OwnerQuoteView,
@@ -36,6 +38,7 @@ interface HistoryRow {
 }
 
 const props = defineProps<{ session: BooksSession }>();
+const renderer = new CommercialDocumentRenderer();
 const invoices = ref<OwnerInvoiceView[]>([]);
 const credits = ref<OwnerCreditNoteView[]>([]);
 const customers = ref<OwnerContactView[]>([]);
@@ -418,6 +421,40 @@ function pay(): void {
   });
 }
 
+async function savePdf(): Promise<void> {
+  const storageRootId = props.session.state.storageRootId;
+  if (!storageRootId) {
+    error.value = "Select a document storage folder in Settings before saving PDFs.";
+    return;
+  }
+  const issuerName = props.session.state.home?.companyName;
+  if (!issuerName) {
+    error.value = "The books company name is unavailable.";
+    return;
+  }
+  await run(async () => {
+    const view = selectedInvoice.value
+      ? invoiceCommercialDocumentView(selectedInvoice.value, issuerName)
+      : selectedCredit.value && referenceInvoice.value
+        ? creditNoteCommercialDocumentView(selectedCredit.value, referenceInvoice.value, issuerName)
+        : null;
+    if (!view) throw new Error("Select an invoice or credit note before saving a PDF.");
+    const rendered = await renderer.render(view);
+    const receipt = await storeCommercialPdf(
+      storageRootId,
+      rendered.filename,
+      rendered.bytes,
+      rendered.sha256,
+    );
+    if (receipt.sha256 !== rendered.sha256 || receipt.byteLen !== rendered.byteLen) {
+      throw new Error("The stored PDF integrity receipt does not match the rendered bytes.");
+    }
+    message.value = receipt.created
+      ? `PDF saved: ${receipt.relativePath}`
+      : `PDF already saved with identical bytes: ${receipt.relativePath}`;
+  });
+}
+
 onMounted(() => {
   if (props.session.state.isOpen) void run(reload);
 });
@@ -464,6 +501,8 @@ onMounted(() => {
       <section v-if="selectedKind && (selectedInvoice || selectedCredit)" class="panel">
         <p class="eyebrow">{{ readableToken(selectedKind) }} · {{ readableToken(selectedState || '') }}</p>
         <h2>{{ selectedNumber }}</h2>
+        <div class="button-row"><button type="button" class="secondary" data-action-id="COMMERCIAL.SAVE_PDF" :disabled="busy" @click="savePdf">Save PDF</button></div>
+        <p v-if="!session.state.storageRootId" class="subtle">Choose a document storage folder in Settings before saving PDFs.</p>
 
         <template v-if="selectedInvoice">
           <p>{{ selectedInvoice.customer.display_name }}<span v-if="selectedInvoice.customer.postal_address"> · {{ selectedInvoice.customer.postal_address }}</span></p>
